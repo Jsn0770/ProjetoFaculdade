@@ -144,14 +144,15 @@ export default function Eventos() {
 
     const motorista = motoristas.find((m) => m.id === Number.parseInt(motoristaId))
 
-    if (!motorista.cnhValida) {
-      toast({
-        title: "Erro",
-        description: "O motorista selecionado não possui CNH válida.",
-        variant: "destructive",
-      })
-      return
-    }
+    // Remover estas linhas:
+    // if (!motorista.cnhValida) {
+    //   toast({
+    //     title: "Erro",
+    //     description: "O motorista selecionado não possui CNH válida.",
+    //     variant: "destructive",
+    //   })
+    //   return
+    // }
 
     const carro = carros.find((c) => c.id === Number.parseInt(carroId))
 
@@ -255,7 +256,6 @@ export default function Eventos() {
                         <div className="flex items-center justify-between w-full">
                           <span>{motorista.nome}</span>
                           {motorista.statusCalculado === "Em Uso" && <Badge variant="destructive">Indisponível</Badge>}
-                          {!motorista.cnhValida && <Badge variant="destructive">CNH Inválida</Badge>}
                         </div>
                       </SelectItem>
                     ))}

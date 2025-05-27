@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
-import { Search, Plus, Edit, Trash2, Users, Phone, AlertTriangle, CheckCircle, Clock, CreditCard } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, Users, Phone, AlertTriangle, CheckCircle, Clock, CreditCard } from "lucide-react"
+import ConfirmDialog from "./confirm-dialog"
 
 export default function Motoristas() {
   const [motoristas, setMotoristas] = useState([])
@@ -24,6 +25,7 @@ export default function Motoristas() {
   const [busca, setBusca] = useState("")
   const [editandoId, setEditandoId] = useState(null)
   const { toast } = useToast()
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
 
   useEffect(() => {
     const dados = localStorage.getItem("motoristas")
@@ -49,17 +51,19 @@ export default function Motoristas() {
 
   const verificarDisponibilidade = () => {
     const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
-    
-    return motoristas.map(motorista => {
+
+    return motoristas.map((motorista) => {
       // Verificar se há saída sem chegada
-      const saidasSemChegada = eventos.filter(e => 
-        e.motoristaId === motorista.id && 
-        e.tipo === "Saída" && 
-        !eventos.some(chegada => 
-          chegada.motoristaId === motorista.id && 
-          chegada.tipo === "Chegada" && 
-          new Date(chegada.dataHora) > new Date(e.dataHora)
-        )
+      const saidasSemChegada = eventos.filter(
+        (e) =>
+          e.motoristaId === motorista.id &&
+          e.tipo === "Saída" &&
+          !eventos.some(
+            (chegada) =>
+              chegada.motoristaId === motorista.id &&
+              chegada.tipo === "Chegada" &&
+              new Date(chegada.dataHora) > new Date(e.dataHora),
+          ),
       )
 
       // Verificar CNH vencida
@@ -67,7 +71,7 @@ export default function Motoristas() {
       const cnhVencida = motorista.vencimentoCnh && new Date(motorista.vencimentoCnh) < hoje
 
       let statusCalculado = motorista.status
-      let motivo = []
+      const motivo = []
 
       if (saidasSemChegada.length > 0) {
         statusCalculado = "Em Viagem"
@@ -89,7 +93,7 @@ export default function Motoristas() {
         ...motorista,
         statusCalculado,
         motivoIndisponibilidade: motivo.join(", "),
-        carroAtual: saidasSemChegada.length > 0 ? saidasSemChegada[0].carroInfo : null
+        carroAtual: saidasSemChegada.length > 0 ? saidasSemChegada[0].carroInfo : null,
       }
     })
   }
@@ -111,12 +115,12 @@ export default function Motoristas() {
     if (cnh && cnh.length !== 11) {
       return "CNH deve ter 11 dígitos"
     }
-    
+
     const hoje = new Date()
     if (vencimentoCnh && new Date(vencimentoCnh) < hoje) {
       return "CNH está vencida"
     }
-    
+
     return null
   }
 
@@ -143,11 +147,8 @@ export default function Motoristas() {
     }
 
     // Validar CNH única
-    const cnhExistente = motoristas.find(m => 
-      m.cnh === cnh && 
-      (editandoId === null || m.id !== editandoId)
-    )
-    
+    const cnhExistente = motoristas.find((m) => m.cnh === cnh && (editandoId === null || m.id !== editandoId))
+
     if (cnhExistente) {
       toast({
         title: "Erro",
@@ -161,15 +162,15 @@ export default function Motoristas() {
       setMotoristas(
         motoristas.map((m) =>
           m.id === editandoId
-            ? { 
-                ...m, 
-                nome, 
-                telefone, 
+            ? {
+                ...m,
+                nome,
+                telefone,
                 cnh,
                 vencimentoCnh,
                 categoria,
                 status,
-                observacoes
+                observacoes,
               }
             : m,
         ),
@@ -211,12 +212,20 @@ export default function Motoristas() {
     setEditandoId(motorista.id)
   }
 
-  const handleDelete = (id) => {
+  const handleDelete = (id, nome) => {
     // Verificar se o motorista está em viagem
     const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
-    const motoristaEmViagem = eventos.some(e => e.motoristaId === id && e.tipo === "Saída" && 
-      !eventos.some(chegada => chegada.motoristaId === id && chegada.tipo === "Chegada" && 
-        new Date(chegada.dataHora) > new Date(e.dataHora)))
+    const motoristaEmViagem = eventos.some(
+      (e) =>
+        e.motoristaId === id &&
+        e.tipo === "Saída" &&
+        !eventos.some(
+          (chegada) =>
+            chegada.motoristaId === id &&
+            chegada.tipo === "Chegada" &&
+            new Date(chegada.dataHora) > new Date(e.dataHora),
+        ),
+    )
 
     if (motoristaEmViagem) {
       toast({
@@ -227,11 +236,19 @@ export default function Motoristas() {
       return
     }
 
-    setMotoristas(motoristas.filter((m) => m.id !== id))
-    if (editandoId === id) resetForm()
-    toast({
-      title: "Sucesso",
-      description: "Motorista removido com sucesso",
+    setConfirmDialog({
+      open: true,
+      title: "Confirmar Exclusão",
+      message: `Tem certeza que deseja excluir o motorista "${nome}"? Esta ação não pode ser desfeita.`,
+      onConfirm: () => {
+        setMotoristas(motoristas.filter((m) => m.id !== id))
+        if (editandoId === id) resetForm()
+        toast({
+          title: "Sucesso",
+          description: "Motorista removido com sucesso",
+        })
+        setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
+      },
     })
   }
 
@@ -248,15 +265,35 @@ export default function Motoristas() {
 
     switch (status) {
       case "Disponível":
-        return <Badge variant="default" className="bg-green-500"><CheckCircle className="w-3 h-3 mr-1" />Disponível</Badge>
+        return (
+          <Badge variant="default" className="bg-green-500">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Disponível
+          </Badge>
+        )
       case "Em Viagem":
-        return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Em Viagem</Badge>
+        return (
+          <Badge variant="secondary">
+            <Clock className="w-3 h-3 mr-1" />
+            Em Viagem
+          </Badge>
+        )
       case "Suspenso":
-        return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" />Suspenso</Badge>
+        return (
+          <Badge variant="destructive">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Suspenso
+          </Badge>
+        )
       case "Inativo":
         return <Badge variant="outline">Inativo</Badge>
       case "Indisponível":
-        return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" />Indisponível</Badge>
+        return (
+          <Badge variant="destructive">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Indisponível
+          </Badge>
+        )
       default:
         return <Badge variant="outline">{status}</Badge>
     }
@@ -282,7 +319,7 @@ export default function Motoristas() {
           </div>
           <div className="flex items-center space-x-2">
             <CheckCircle className="w-4 h-4 text-green-500" />
-            <span>{motoristasComStatus.filter(m => m.statusCalculado === "Disponível").length} disponíveis</span>
+            <span>{motoristasComStatus.filter((m) => m.statusCalculado === "Disponível").length} disponíveis</span>
           </div>
         </div>
       </div>
@@ -298,11 +335,20 @@ export default function Motoristas() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="nome">Nome <span className="text-red-500">*</span></Label>
-                <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do motorista" />
+                <Label htmlFor="nome">
+                  Nome <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="nome"
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  placeholder="Nome do motorista"
+                />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="telefone">Telefone <span className="text-red-500">*</span></Label>
+                <Label htmlFor="telefone">
+                  Telefone <span className="text-red-500">*</span>
+                </Label>
                 <div className="relative">
                   <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <Input
@@ -316,7 +362,9 @@ export default function Motoristas() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cnh">CNH <span className="text-red-500">*</span></Label>
+                <Label htmlFor="cnh">
+                  CNH <span className="text-red-500">*</span>
+                </Label>
                 <div className="relative">
                   <CreditCard className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <Input
@@ -333,7 +381,9 @@ export default function Motoristas() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="vencimentoCnh">Vencimento CNH <span className="text-red-500">*</span></Label>
+                <Label htmlFor="vencimentoCnh">
+                  Vencimento CNH <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="vencimentoCnh"
                   type="date"
@@ -442,14 +492,16 @@ export default function Motoristas() {
                           <Badge variant="outline">{motorista.categoria}</Badge>
                         </TableCell>
                         <TableCell>
-                          <div className={`flex items-center space-x-2 ${cnhVencida ? 'text-red-600' : ''}`}>
+                          <div className={`flex items-center space-x-2 ${cnhVencida ? "text-red-600" : ""}`}>
                             {cnhVencida && <AlertTriangle className="w-4 h-4" />}
-                            <span>{motorista.vencimentoCnh ? new Date(motorista.vencimentoCnh).toLocaleDateString('pt-BR') : '-'}</span>
+                            <span>
+                              {motorista.vencimentoCnh
+                                ? new Date(motorista.vencimentoCnh).toLocaleDateString("pt-BR")
+                                : "-"}
+                            </span>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          {getStatusBadge(motorista)}
-                        </TableCell>
+                        <TableCell>{getStatusBadge(motorista)}</TableCell>
                         <TableCell>
                           {motorista.carroAtual ? (
                             <div className="text-sm">
@@ -471,7 +523,7 @@ export default function Motoristas() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDelete(motorista.id)}
+                              onClick={() => handleDelete(motorista.id, motorista.nome)}
                               className="text-red-600 hover:text-red-700"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -492,6 +544,13 @@ export default function Motoristas() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })}
+      />
     </div>
   )
 }

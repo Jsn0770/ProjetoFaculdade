@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
-import { Search, Plus, Edit, Trash2, Car, Upload, ImageIcon, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, Car, Upload, ImageIcon, AlertTriangle, CheckCircle, Clock } from "lucide-react"
+import ConfirmDialog from "./confirm-dialog"
 
 export default function Carros() {
   const [carros, setCarros] = useState([])
@@ -28,6 +29,7 @@ export default function Carros() {
   const [busca, setBusca] = useState("")
   const [editandoId, setEditandoId] = useState(null)
   const { toast } = useToast()
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
 
   useEffect(() => {
     const dados = localStorage.getItem("carros")
@@ -57,19 +59,21 @@ export default function Carros() {
 
   const verificarDisponibilidade = (carroId = null) => {
     const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
-    
-    return carros.map(carro => {
+
+    return carros.map((carro) => {
       if (carroId && carro.id !== carroId) return carro
 
       // Verificar se há saída sem chegada
-      const saidasSemChegada = eventos.filter(e => 
-        e.carroId === carro.id && 
-        e.tipo === "Saída" && 
-        !eventos.some(chegada => 
-          chegada.carroId === carro.id && 
-          chegada.tipo === "Chegada" && 
-          new Date(chegada.dataHora) > new Date(e.dataHora)
-        )
+      const saidasSemChegada = eventos.filter(
+        (e) =>
+          e.carroId === carro.id &&
+          e.tipo === "Saída" &&
+          !eventos.some(
+            (chegada) =>
+              chegada.carroId === carro.id &&
+              chegada.tipo === "Chegada" &&
+              new Date(chegada.dataHora) > new Date(e.dataHora),
+          ),
       )
 
       // Verificar documentação vencida
@@ -79,7 +83,7 @@ export default function Carros() {
       const revisaoVencida = carro.revisao && new Date(carro.revisao) < hoje
 
       let novoStatus = carro.status
-      let motivo = []
+      const motivo = []
 
       if (saidasSemChegada.length > 0) {
         novoStatus = "Em Uso"
@@ -99,7 +103,7 @@ export default function Carros() {
       return {
         ...carro,
         statusCalculado: novoStatus,
-        motivoIndisponibilidade: motivo.join(", ")
+        motivoIndisponibilidade: motivo.join(", "),
       }
     })
   }
@@ -145,11 +149,10 @@ export default function Carros() {
     }
 
     // Validar placa única
-    const placaExistente = carros.find(c => 
-      c.placa.toUpperCase() === placa.toUpperCase() && 
-      (editandoId === null || c.id !== editandoId)
+    const placaExistente = carros.find(
+      (c) => c.placa.toUpperCase() === placa.toUpperCase() && (editandoId === null || c.id !== editandoId),
     )
-    
+
     if (placaExistente) {
       toast({
         title: "Erro",
@@ -172,19 +175,19 @@ export default function Carros() {
       setCarros(
         carros.map((c) =>
           c.id === editandoId
-            ? { 
-                ...c, 
-                modelo, 
-                marca, 
-                placa: placa.toUpperCase(), 
+            ? {
+                ...c,
+                modelo,
+                marca,
+                placa: placa.toUpperCase(),
                 ano: Number.parseInt(ano),
                 odometro: Number.parseInt(odometro),
-                status, 
+                status,
                 ipva,
                 seguro,
                 revisao,
                 observacoes,
-                imagem 
+                imagem,
               }
             : c,
         ),
@@ -235,12 +238,18 @@ export default function Carros() {
     setEditandoId(carro.id)
   }
 
-  const handleDelete = (id) => {
+  const handleDelete = (id, modelo, marca) => {
     // Verificar se o carro está em uso
     const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
-    const carroEmUso = eventos.some(e => e.carroId === id && e.tipo === "Saída" && 
-      !eventos.some(chegada => chegada.carroId === id && chegada.tipo === "Chegada" && 
-        new Date(chegada.dataHora) > new Date(e.dataHora)))
+    const carroEmUso = eventos.some(
+      (e) =>
+        e.carroId === id &&
+        e.tipo === "Saída" &&
+        !eventos.some(
+          (chegada) =>
+            chegada.carroId === id && chegada.tipo === "Chegada" && new Date(chegada.dataHora) > new Date(e.dataHora),
+        ),
+    )
 
     if (carroEmUso) {
       toast({
@@ -251,11 +260,19 @@ export default function Carros() {
       return
     }
 
-    setCarros(carros.filter((c) => c.id !== id))
-    if (editandoId === id) resetForm()
-    toast({
-      title: "Sucesso",
-      description: "Carro removido com sucesso",
+    setConfirmDialog({
+      open: true,
+      title: "Confirmar Exclusão",
+      message: `Tem certeza que deseja excluir o veículo "${marca} ${modelo}"? Esta ação não pode ser desfeita.`,
+      onConfirm: () => {
+        setCarros(carros.filter((c) => c.id !== id))
+        if (editandoId === id) resetForm()
+        toast({
+          title: "Sucesso",
+          description: "Carro removido com sucesso",
+        })
+        setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
+      },
     })
   }
 
@@ -273,13 +290,33 @@ export default function Carros() {
 
     switch (status) {
       case "Disponível":
-        return <Badge variant="default" className="bg-green-500"><CheckCircle className="w-3 h-3 mr-1" />Disponível</Badge>
+        return (
+          <Badge variant="default" className="bg-green-500">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Disponível
+          </Badge>
+        )
       case "Em Uso":
-        return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Em Uso</Badge>
+        return (
+          <Badge variant="secondary">
+            <Clock className="w-3 h-3 mr-1" />
+            Em Uso
+          </Badge>
+        )
       case "Manutenção":
-        return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" />Manutenção</Badge>
+        return (
+          <Badge variant="destructive">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Manutenção
+          </Badge>
+        )
       case "Indisponível":
-        return <Badge variant="destructive" title={motivo}><AlertTriangle className="w-3 h-3 mr-1" />Indisponível</Badge>
+        return (
+          <Badge variant="destructive" title={motivo}>
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Indisponível
+          </Badge>
+        )
       default:
         return <Badge variant="outline">{status}</Badge>
     }
@@ -288,11 +325,11 @@ export default function Carros() {
   const verificarDocumentacaoVencida = (carro) => {
     const hoje = new Date()
     const alertas = []
-    
+
     if (carro.ipva && new Date(carro.ipva) < hoje) alertas.push("IPVA")
     if (carro.seguro && new Date(carro.seguro) < hoje) alertas.push("Seguro")
     if (carro.revisao && new Date(carro.revisao) < hoje) alertas.push("Revisão")
-    
+
     return alertas
   }
 
@@ -310,7 +347,7 @@ export default function Carros() {
           </div>
           <div className="flex items-center space-x-2">
             <CheckCircle className="w-4 h-4 text-green-500" />
-            <span>{carrosComStatus.filter(c => c.statusCalculado === "Disponível").length} disponíveis</span>
+            <span>{carrosComStatus.filter((c) => c.statusCalculado === "Disponível").length} disponíveis</span>
           </div>
         </div>
       </div>
@@ -326,15 +363,21 @@ export default function Carros() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="modelo">Modelo <span className="text-red-500">*</span></Label>
+                <Label htmlFor="modelo">
+                  Modelo <span className="text-red-500">*</span>
+                </Label>
                 <Input id="modelo" value={modelo} onChange={(e) => setModelo(e.target.value)} placeholder="Ex: Civic" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="marca">Marca <span className="text-red-500">*</span></Label>
+                <Label htmlFor="marca">
+                  Marca <span className="text-red-500">*</span>
+                </Label>
                 <Input id="marca" value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex: Honda" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="placa">Placa <span className="text-red-500">*</span></Label>
+                <Label htmlFor="placa">
+                  Placa <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="placa"
                   value={placa}
@@ -344,7 +387,9 @@ export default function Carros() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="ano">Ano <span className="text-red-500">*</span></Label>
+                <Label htmlFor="ano">
+                  Ano <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="ano"
                   type="number"
@@ -359,7 +404,9 @@ export default function Carros() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="odometro">Odômetro (km) <span className="text-red-500">*</span></Label>
+                <Label htmlFor="odometro">
+                  Odômetro (km) <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="odometro"
                   type="number"
@@ -384,33 +431,18 @@ export default function Carros() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ipva">Vencimento IPVA</Label>
-                <Input
-                  id="ipva"
-                  type="date"
-                  value={ipva}
-                  onChange={(e) => setIpva(e.target.value)}
-                />
+                <Input id="ipva" type="date" value={ipva} onChange={(e) => setIpva(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="seguro">Vencimento Seguro</Label>
-                <Input
-                  id="seguro"
-                  type="date"
-                  value={seguro}
-                  onChange={(e) => setSeguro(e.target.value)}
-                />
+                <Input id="seguro" type="date" value={seguro} onChange={(e) => setSeguro(e.target.value)} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="revisao">Próxima Revisão</Label>
-                <Input
-                  id="revisao"
-                  type="date"
-                  value={revisao}
-                  onChange={(e) => setRevisao(e.target.value)}
-                />
+                <Input id="revisao" type="date" value={revisao} onChange={(e) => setRevisao(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="imagem">Imagem do Veículo</Label>
@@ -511,7 +543,9 @@ export default function Carros() {
                         </TableCell>
                         <TableCell>
                           <div>
-                            <div className="font-medium">{carro.marca} {carro.modelo}</div>
+                            <div className="font-medium">
+                              {carro.marca} {carro.modelo}
+                            </div>
                             <div className="text-sm text-gray-500">RENAVAM: {carro.renavam}</div>
                           </div>
                         </TableCell>
@@ -545,7 +579,7 @@ export default function Carros() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDelete(carro.id)}
+                              onClick={() => handleDelete(carro.id, carro.modelo, carro.marca)}
                               className="text-red-600 hover:text-red-700"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -566,6 +600,13 @@ export default function Carros() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })}
+      />
     </div>
   )
 }

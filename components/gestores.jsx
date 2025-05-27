@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
 import { Search, Plus, Edit, Trash2, UserCog, Phone, Mail, Eye, EyeOff } from "lucide-react"
+import ConfirmDialog from "./confirm-dialog"
 
 export default function Gestores() {
   const [gestores, setGestores] = useState([])
@@ -19,6 +20,7 @@ export default function Gestores() {
   const [busca, setBusca] = useState("")
   const [editandoId, setEditandoId] = useState(null)
   const { toast } = useToast()
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
 
   useEffect(() => {
     const dados = localStorage.getItem("gestores")
@@ -139,12 +141,20 @@ export default function Gestores() {
     setEditandoId(gestor.id)
   }
 
-  const handleDelete = (id) => {
-    setGestores(gestores.filter((g) => g.id !== id))
-    if (editandoId === id) resetForm()
-    toast({
-      title: "Sucesso",
-      description: "Gestor removido com sucesso",
+  const handleDelete = (id, nome) => {
+    setConfirmDialog({
+      open: true,
+      title: "Confirmar Exclusão",
+      message: `Tem certeza que deseja excluir o gestor "${nome}"? Esta ação não pode ser desfeita.`,
+      onConfirm: () => {
+        setGestores(gestores.filter((g) => g.id !== id))
+        if (editandoId === id) resetForm()
+        toast({
+          title: "Sucesso",
+          description: "Gestor removido com sucesso",
+        })
+        setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
+      },
     })
   }
 
@@ -297,7 +307,7 @@ export default function Gestores() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleDelete(gestor.id)}
+                          onClick={() => handleDelete(gestor.id, gestor.nome)}
                           className="text-red-600 hover:text-red-700"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -316,6 +326,13 @@ export default function Gestores() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })}
+      />
     </div>
   )
 }
