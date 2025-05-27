@@ -12,7 +12,19 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
-import { CalendarIcon, Car, TrendingUp, Download, Filter, BarChart3, PieChartIcon, Activity } from "lucide-react"
+import {
+  CalendarIcon,
+  Car,
+  TrendingUp,
+  Download,
+  Filter,
+  BarChart3,
+  PieChartIcon,
+  Activity,
+  Wrench,
+  Receipt,
+  TrendingDown,
+} from "lucide-react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 
@@ -28,6 +40,7 @@ export default function Relatorios() {
   const [carroFiltro, setCarroFiltro] = useState("todos")
   const [tipoRelatorio, setTipoRelatorio] = useState("periodo")
   const { toast } = useToast()
+  const [custosOperacionais, setCustosOperacionais] = useState([])
 
   useEffect(() => {
     const eventosData = localStorage.getItem("eventos")
@@ -37,6 +50,32 @@ export default function Relatorios() {
     if (eventosData) setEventos(JSON.parse(eventosData))
     if (motoristasData) setMotoristas(JSON.parse(motoristasData))
     if (carrosData) setCarros(JSON.parse(carrosData))
+
+    const custosData = localStorage.getItem("custosOperacionais")
+    const manutencoesData = localStorage.getItem("manutencoes")
+
+    if (custosData) setCustosOperacionais(JSON.parse(custosData))
+    if (manutencoesData) {
+      const manutencoes = JSON.parse(manutencoesData)
+      // Converter manutenções em custos operacionais para análise
+      const custosManutenção = manutencoes
+        .filter((m) => m.status === "Concluída" && m.custo > 0)
+        .map((m) => ({
+          id: `manut_${m.id}`,
+          carroId: m.carroId,
+          carroInfo: m.carroInfo,
+          tipo: "Manutenção",
+          descricao: m.descricao,
+          valor: m.custo,
+          data: m.dataRealizacao,
+          odometro: m.odometroRealizacao,
+          gestorResponsavel: m.gestorResponsavel,
+          observacoes: m.observacoes,
+          dataCadastro: m.dataCadastro,
+        }))
+
+      setCustosOperacionais((prev) => [...prev, ...custosManutenção])
+    }
 
     // Definir período padrão (últimos 30 dias)
     const hoje = new Date()
@@ -88,6 +127,50 @@ export default function Relatorios() {
       mediaKmPorViagem: viagensCompletas > 0 ? quilometragemTotal / viagensCompletas : 0,
     }
   }, [eventosFiltrados])
+
+  // Calcular custos operacionais
+  const custosOperacionaisCalculados = useMemo(() => {
+    const custosNoPeríodo = custosOperacionais.filter((custo) => {
+      const dataCusto = new Date(custo.data)
+      const dentroDataInicio = !dataInicio || dataCusto >= dataInicio
+      const dentroDataFim = !dataFim || dataCusto <= dataFim
+      const carroMatch = carroFiltro === "todos" || custo.carroId === Number.parseInt(carroFiltro)
+
+      return dentroDataInicio && dentroDataFim && carroMatch
+    })
+
+    const totalCustos = custosNoPeríodo.reduce((total, custo) => total + custo.valor, 0)
+    const custosPorTipo = custosNoPeríodo.reduce((acc, custo) => {
+      acc[custo.tipo] = (acc[custo.tipo] || 0) + custo.valor
+      return acc
+    }, {})
+
+    const custosPorCarro = custosNoPeríodo.reduce((acc, custo) => {
+      if (!acc[custo.carroId]) {
+        acc[custo.carroId] = {
+          carroInfo: custo.carroInfo,
+          total: 0,
+          porTipo: {},
+        }
+      }
+      acc[custo.carroId].total += custo.valor
+      acc[custo.carroId].porTipo[custo.tipo] = (acc[custo.carroId].porTipo[custo.tipo] || 0) + custo.valor
+      return acc
+    }, {})
+
+    // Calcular custo por quilômetro
+    const custoPorKm =
+      estatisticasGerais.quilometragemTotal > 0 ? totalCustos / estatisticasGerais.quilometragemTotal : 0
+
+    return {
+      totalCustos,
+      custosPorTipo,
+      custosPorCarro: Object.values(custosPorCarro),
+      custoPorKm,
+      custoMedioPorViagem:
+        estatisticasGerais.viagensCompletas > 0 ? totalCustos / estatisticasGerais.viagensCompletas : 0,
+    }
+  }, [custosOperacionais, dataInicio, dataFim, carroFiltro, estatisticasGerais])
 
   // Dados para gráfico de uso por período
   const dadosUsoPorPeriodo = useMemo(() => {
@@ -381,6 +464,29 @@ export default function Relatorios() {
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-2">
+              <Receipt className="w-8 h-8 text-yellow-600" />
+              <div>
+                <p className="text-sm text-gray-600">Custo Total</p>
+                <p className="text-2xl font-bold">R$ {(custosOperacionaisCalculados.totalCustos / 1000).toFixed(0)}k</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-2">
+              <TrendingDown className="w-8 h-8 text-pink-600" />
+              <div>
+                <p className="text-sm text-gray-600">Custo/KM</p>
+                <p className="text-2xl font-bold">R$ {custosOperacionaisCalculados.custoPorKm.toFixed(2)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Relatórios Detalhados */}
@@ -389,6 +495,7 @@ export default function Relatorios() {
           <TabsTrigger value="periodo">Por Período</TabsTrigger>
           <TabsTrigger value="motorista">Por Motorista</TabsTrigger>
           <TabsTrigger value="carro">Por Carro</TabsTrigger>
+          <TabsTrigger value="custos">Custos Operacionais</TabsTrigger>
         </TabsList>
 
         <TabsContent value="periodo" className="space-y-4">
@@ -574,6 +681,163 @@ export default function Relatorios() {
                       </TableCell>
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="custos" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Análise de Custos Operacionais</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-2">
+                      <Receipt className="w-6 h-6 text-blue-600" />
+                      <div>
+                        <p className="text-sm text-gray-600">Total Geral</p>
+                        <p className="text-xl font-bold">
+                          R${" "}
+                          {custosOperacionaisCalculados.totalCustos.toLocaleString("pt-BR", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-2">
+                      <TrendingDown className="w-6 h-6 text-green-600" />
+                      <div>
+                        <p className="text-sm text-gray-600">Custo por KM</p>
+                        <p className="text-xl font-bold">R$ {custosOperacionaisCalculados.custoPorKm.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-2">
+                      <Car className="w-6 h-6 text-purple-600" />
+                      <div>
+                        <p className="text-sm text-gray-600">Custo por Viagem</p>
+                        <p className="text-xl font-bold">
+                          R$ {custosOperacionaisCalculados.custoMedioPorViagem.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-2">
+                      <Wrench className="w-6 h-6 text-orange-600" />
+                      <div>
+                        <p className="text-sm text-gray-600">Maior Custo</p>
+                        <p className="text-xl font-bold">
+                          {Object.keys(custosOperacionaisCalculados.custosPorTipo).length > 0
+                            ? Object.entries(custosOperacionaisCalculados.custosPorTipo).sort(
+                                ([, a], [, b]) => b - a,
+                              )[0]?.[0] || "N/A"
+                            : "N/A"}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={Object.entries(custosOperacionaisCalculados.custosPorTipo).map(([tipo, valor]) => ({
+                        name: tipo,
+                        value: valor,
+                        fill: COLORS[
+                          Object.keys(custosOperacionaisCalculados.custosPorTipo).indexOf(tipo) % COLORS.length
+                        ],
+                      }))}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, value }) => `${name}: R$ ${value.toFixed(0)}`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {Object.entries(custosOperacionaisCalculados.custosPorTipo).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value) => [
+                        `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+                        "Valor",
+                      ]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Custos por Veículo</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Veículo</TableHead>
+                    <TableHead>Custo Total</TableHead>
+                    <TableHead>Manutenção</TableHead>
+                    <TableHead>Combustível</TableHead>
+                    <TableHead>Outros</TableHead>
+                    <TableHead>% do Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {custosOperacionaisCalculados.custosPorCarro
+                    .sort((a, b) => b.total - a.total)
+                    .map((carro, index) => (
+                      <TableRow key={index}>
+                        <TableCell className="font-medium">{carro.carroInfo}</TableCell>
+                        <TableCell className="font-bold">
+                          R$ {carro.total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell>
+                          R$ {(carro.porTipo["Manutenção"] || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell>
+                          R$ {(carro.porTipo["Combustível"] || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell>
+                          R${" "}
+                          {Object.entries(carro.porTipo)
+                            .filter(([tipo]) => !["Manutenção", "Combustível"].includes(tipo))
+                            .reduce((sum, [, valor]) => sum + valor, 0)
+                            .toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {custosOperacionaisCalculados.totalCustos > 0
+                              ? ((carro.total / custosOperacionaisCalculados.totalCustos) * 100).toFixed(1)
+                              : 0}
+                            %
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             </CardContent>
