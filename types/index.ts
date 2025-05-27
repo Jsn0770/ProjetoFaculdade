@@ -42,3 +42,37 @@ export interface Gestor {
   senha: string
   dataCadastro: string
 }
+
+export interface Manutencao {
+  id: number
+  carroId: number
+  carroInfo: string
+  tipo: "Preventiva" | "Corretiva" | "Revisão" | "Troca de Óleo" | "Pneus" | "Freios" | "Outros"
+  descricao: string
+  dataRealizacao?: string
+  dataAgendamento?: string
+  odometroRealizacao?: number
+  proximaManutencao?: string
+  proximoOdometro?: number
+  custo: number
+  fornecedor: string
+  status: "Agendada" | "Em Andamento" | "Concluída" | "Cancelada"
+  observacoes?: string
+  gestorResponsavel: string
+  dataCadastro: string
+}
+
+export interface CustoOperacional {
+  id: number
+  carroId: number
+  carroInfo: string
+  tipo: "Combustível" | "Manutenção" | "Seguro" | "IPVA" | "Multa" | "Outros"
+  descricao: string
+  valor: number
+  data: string
+  odometro?: number
+  litros?: number // Para combustível
+  gestorResponsavel: string
+  observacoes?: string
+  dataCadastro: string
+}
