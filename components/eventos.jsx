@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
-import { Calendar, Plus, MapPin, Clock, User, Phone, Gauge } from "lucide-react"
+import { Calendar, Plus, MapPin, Clock, User, Phone, Gauge, AlertCircle } from "lucide-react"
 
 export default function Eventos() {
   const [eventos, setEventos] = useState([])
@@ -65,6 +65,42 @@ export default function Eventos() {
     return valor
   }
 
+  // Verificar se carro está em uso (tem saída sem chegada)
+  const verificarCarroEmUso = (carroId) => {
+    return eventos.some(
+      (e) =>
+        e.carroId === carroId &&
+        e.tipo === "Saída" &&
+        !eventos.some(
+          (chegada) =>
+            chegada.carroId === carroId &&
+            chegada.tipo === "Chegada" &&
+            new Date(chegada.dataHora) > new Date(e.dataHora),
+        ),
+    )
+  }
+
+  // Verificar se motorista está em viagem (tem saída sem chegada)
+  const verificarMotoristaEmViagem = (motoristaId) => {
+    return eventos.some(
+      (e) =>
+        e.motoristaId === motoristaId &&
+        e.tipo === "Saída" &&
+        !eventos.some(
+          (chegada) =>
+            chegada.motoristaId === motoristaId &&
+            chegada.tipo === "Chegada" &&
+            new Date(chegada.dataHora) > new Date(e.dataHora),
+        ),
+    )
+  }
+
+  // Obter odômetro atual do carro
+  const obterOdometroAtual = (carroId) => {
+    const carro = carros.find((c) => c.id === carroId)
+    return carro?.odometro || 0
+  }
+
   const resetForm = () => {
     setMotoristaId("")
     setCarroId("")
@@ -97,64 +133,79 @@ export default function Eventos() {
       return
     }
 
-    if (!odometro || Number.parseInt(odometro) <= 0) {
-      toast({
-        title: "Erro",
-        description: "Odômetro é obrigatório para todos os eventos",
-        variant: "destructive",
-      })
-      return
-    }
+    const carroIdNum = Number.parseInt(carroId)
+    const motoristaIdNum = Number.parseInt(motoristaId)
 
-    // Validação de disponibilidade do carro
-    const carroSelecionado = carros.find((c) => c.id === Number.parseInt(carroId))
-    if (tipoEvento === "Saída" && carroSelecionado?.statusCalculado === "Em Uso") {
-      toast({
-        title: "Erro",
-        description: "Este carro já está em uso",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (tipoEvento === "Chegada" && carroSelecionado?.statusCalculado === "Disponível") {
-      toast({
-        title: "Erro",
-        description: "Este carro não possui registro de saída",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Validação de odômetro na chegada (deve ser maior que na saída)
-    if (tipoEvento === "Chegada") {
-      const ultimaSaida = eventos
-        .filter((e) => e.carroId === Number.parseInt(carroId) && e.tipo === "Saída")
-        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))[0]
-
-      if (ultimaSaida && Number.parseInt(odometro) <= ultimaSaida.odometro) {
+    // Validações específicas por tipo de evento
+    if (tipoEvento === "Saída") {
+      // Verificar se carro já está em uso
+      if (verificarCarroEmUso(carroIdNum)) {
         toast({
           title: "Erro",
-          description: "Odômetro na chegada deve ser maior que na saída",
+          description: "Este carro já está em uso. Registre a chegada antes de fazer nova saída.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Verificar se motorista já está em viagem
+      if (verificarMotoristaEmViagem(motoristaIdNum)) {
+        toast({
+          title: "Erro",
+          description: "Este motorista já está em viagem. Registre a chegada antes de fazer nova saída.",
+          variant: "destructive",
+        })
+        return
+      }
+    } else {
+      // Chegada - verificar se há saída sem chegada
+      if (!verificarCarroEmUso(carroIdNum)) {
+        toast({
+          title: "Erro",
+          description: "Este carro não possui registro de saída. Registre a saída primeiro.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Verificar se o motorista é o mesmo da saída
+      const ultimaSaida = eventos
+        .filter((e) => e.carroId === carroIdNum && e.tipo === "Saída")
+        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))[0]
+
+      if (ultimaSaida && ultimaSaida.motoristaId !== motoristaIdNum) {
+        toast({
+          title: "Erro",
+          description: "O motorista deve ser o mesmo que fez a saída do veículo.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Validar odômetro obrigatório na chegada
+      if (!odometro || Number.parseInt(odometro) <= 0) {
+        toast({
+          title: "Erro",
+          description: "Odômetro é obrigatório para registrar a chegada",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Validar se odômetro é maior que o atual
+      const odometroAtual = obterOdometroAtual(carroIdNum)
+      if (Number.parseInt(odometro) <= odometroAtual) {
+        toast({
+          title: "Erro",
+          description: `Odômetro deve ser maior que ${odometroAtual.toLocaleString()} km (atual do veículo)`,
           variant: "destructive",
         })
         return
       }
     }
 
-    const motorista = motoristas.find((m) => m.id === Number.parseInt(motoristaId))
-
-    // Remover estas linhas:
-    // if (!motorista.cnhValida) {
-    //   toast({
-    //     title: "Erro",
-    //     description: "O motorista selecionado não possui CNH válida.",
-    //     variant: "destructive",
-    //   })
-    //   return
-    // }
-
-    const carro = carros.find((c) => c.id === Number.parseInt(carroId))
+    const motorista = motoristas.find((m) => m.id === motoristaIdNum)
+    const carro = carros.find((c) => c.id === carroIdNum)
 
     let gestorNome = "Admin"
     if (gestorId !== "admin") {
@@ -164,44 +215,81 @@ export default function Eventos() {
 
     if (!motorista || !carro) return
 
+    // Para saída, usar odômetro atual do carro
+    const odometroEvento = tipoEvento === "Saída" ? carro.odometro : Number.parseInt(odometro)
+
     const novoEvento = {
       id: Date.now(),
-      motoristaId: Number.parseInt(motoristaId),
-      carroId: Number.parseInt(carroId),
+      motoristaId: motoristaIdNum,
+      carroId: carroIdNum,
       gestorId: gestorId === "admin" ? "admin" : Number.parseInt(gestorId),
       motoristaNome: motorista.nome,
       carroInfo: `${carro.marca} ${carro.modelo} - ${carro.placa}`,
       gestorNome,
       telefoneMotorista,
       tipo: tipoEvento,
-      odometro: Number.parseInt(odometro),
+      odometro: odometroEvento,
       observacoes,
       dataHora: new Date().toLocaleString("pt-BR"),
     }
 
     setEventos([novoEvento, ...eventos])
 
-    // Atualizar status do carro
-    const carrosAtualizados = carros.map((c) =>
-      c.id === Number.parseInt(carroId) ? { ...c, status: tipoEvento === "Saída" ? "Em Uso" : "Disponível" } : c,
-    )
+    // Atualizar status e odômetro do carro
+    const carrosAtualizados = carros.map((c) => {
+      if (c.id === carroIdNum) {
+        return {
+          ...c,
+          status: tipoEvento === "Saída" ? "Em Uso" : "Disponível",
+          // Atualizar odômetro apenas na chegada
+          odometro: tipoEvento === "Chegada" ? Number.parseInt(odometro) : c.odometro,
+        }
+      }
+      return c
+    })
+
     setCarros(carrosAtualizados)
     localStorage.setItem("carros", JSON.stringify(carrosAtualizados))
 
     toast({
       title: "Sucesso",
-      description: `Evento de ${tipoEvento.toLowerCase()} registrado com sucesso`,
+      description: `${tipoEvento} registrada com sucesso${
+        tipoEvento === "Chegada" ? `. Odômetro atualizado para ${Number.parseInt(odometro).toLocaleString()} km` : ""
+      }`,
     })
 
     resetForm()
   }
+
+  // Filtrar carros disponíveis baseado no tipo de evento
+  const carrosDisponiveis = carros.filter((carro) => {
+    if (tipoEvento === "Saída") {
+      return !verificarCarroEmUso(carro.id) && carro.status !== "Manutenção"
+    } else {
+      return verificarCarroEmUso(carro.id)
+    }
+  })
+
+  // Filtrar motoristas disponíveis baseado no tipo de evento
+  const motoristasDisponiveis = motoristas.filter((motorista) => {
+    if (tipoEvento === "Saída") {
+      return !verificarMotoristaEmViagem(motorista.id)
+    } else {
+      // Para chegada, mostrar apenas o motorista que fez a saída do carro selecionado
+      if (!carroId) return false
+      const ultimaSaida = eventos
+        .filter((e) => e.carroId === Number.parseInt(carroId) && e.tipo === "Saída")
+        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))[0]
+      return ultimaSaida ? ultimaSaida.motoristaId === motorista.id : false
+    }
+  })
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Eventos</h1>
-          <p className="text-gray-600 mt-1">Registre saídas e chegadas dos veículos</p>
+          <p className="text-gray-600 mt-1">Sistema de controle de saídas e chegadas da locadora</p>
         </div>
         <div className="flex items-center space-x-2 text-sm text-gray-500">
           <Calendar className="w-4 h-4" />
@@ -239,26 +327,14 @@ export default function Eventos() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="motorista">
-                  Motorista <span className="text-red-500">*</span>
-                </Label>
-                <Select value={motoristaId} onValueChange={setMotoristaId}>
+                <Label htmlFor="tipo">Tipo de Evento</Label>
+                <Select value={tipoEvento} onValueChange={setTipoEvento}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecione o motorista" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {motoristas.map((motorista) => (
-                      <SelectItem
-                        key={motorista.id}
-                        value={motorista.id.toString()}
-                        disabled={motorista.statusCalculado === "Em Uso"}
-                      >
-                        <div className="flex items-center justify-between w-full">
-                          <span>{motorista.nome}</span>
-                          {motorista.statusCalculado === "Em Uso" && <Badge variant="destructive">Indisponível</Badge>}
-                        </div>
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="Saída">Saída</SelectItem>
+                    <SelectItem value="Chegada">Chegada</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -281,59 +357,85 @@ export default function Eventos() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="carro">
                   Carro <span className="text-red-500">*</span>
                 </Label>
                 <Select value={carroId} onValueChange={setCarroId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecione o carro" />
+                    <SelectValue
+                      placeholder={
+                        tipoEvento === "Saída" ? "Selecione carro disponível" : "Selecione carro para chegada"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {carros.map((carro) => (
-                      <SelectItem
-                        key={carro.id}
-                        value={carro.id.toString()}
-                        disabled={
-                          tipoEvento === "Saída"
-                            ? carro.statusCalculado === "Em Uso"
-                            : carro.statusCalculado === "Disponível"
-                        }
-                      >
+                    {carrosDisponiveis.map((carro) => (
+                      <SelectItem key={carro.id} value={carro.id.toString()}>
                         <div className="flex items-center justify-between w-full">
                           <span>
                             {carro.marca} {carro.modelo} - {carro.placa}
                           </span>
-                          <Badge
-                            variant={carro.statusCalculado === "Disponível" ? "default" : "secondary"}
-                            className="ml-2"
-                          >
-                            {carro.statusCalculado}
-                          </Badge>
+                          <div className="flex items-center space-x-2 ml-2">
+                            <Badge variant={tipoEvento === "Saída" ? "default" : "secondary"}>
+                              {tipoEvento === "Saída" ? "Disponível" : "Em Uso"}
+                            </Badge>
+                            <span className="text-xs text-gray-500">{carro.odometro?.toLocaleString()} km</span>
+                          </div>
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {carrosDisponiveis.length === 0 && (
+                  <div className="flex items-center space-x-2 text-amber-600 text-sm">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>
+                      {tipoEvento === "Saída"
+                        ? "Nenhum carro disponível para saída"
+                        : "Nenhum carro em uso para chegada"}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="tipo">Tipo de Evento</Label>
-                <Select value={tipoEvento} onValueChange={setTipoEvento}>
+                <Label htmlFor="motorista">
+                  Motorista <span className="text-red-500">*</span>
+                </Label>
+                <Select value={motoristaId} onValueChange={setMotoristaId}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue
+                      placeholder={tipoEvento === "Saída" ? "Selecione motorista disponível" : "Motorista da saída"}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Saída">Saída</SelectItem>
-                    <SelectItem value="Chegada">Chegada</SelectItem>
+                    {motoristasDisponiveis.map((motorista) => (
+                      <SelectItem key={motorista.id} value={motorista.id.toString()}>
+                        <div className="flex items-center justify-between w-full">
+                          <span>{motorista.nome}</span>
+                          <Badge variant="default">{tipoEvento === "Saída" ? "Disponível" : "Em Viagem"}</Badge>
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {motoristasDisponiveis.length === 0 && (
+                  <div className="flex items-center space-x-2 text-amber-600 text-sm">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>
+                      {tipoEvento === "Saída" ? "Nenhum motorista disponível" : "Selecione um carro primeiro"}
+                    </span>
+                  </div>
+                )}
               </div>
+            </div>
 
+            {tipoEvento === "Chegada" && (
               <div className="space-y-2">
                 <Label htmlFor="odometro">
-                  Odômetro (km) <span className="text-red-500">*</span>
+                  Novo Odômetro (km) <span className="text-red-500">*</span>
                 </Label>
                 <div className="relative">
                   <Gauge className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -342,13 +444,36 @@ export default function Eventos() {
                     type="number"
                     value={odometro}
                     onChange={(e) => setOdometro(e.target.value)}
-                    placeholder="Ex: 15000"
+                    placeholder={
+                      carroId
+                        ? `Atual: ${obterOdometroAtual(Number.parseInt(carroId)).toLocaleString()} km`
+                        : "Ex: 15500"
+                    }
                     className="pl-10"
-                    min="0"
+                    min={carroId ? obterOdometroAtual(Number.parseInt(carroId)) + 1 : 0}
                   />
                 </div>
+                {carroId && (
+                  <p className="text-sm text-gray-600">
+                    Odômetro atual do veículo: {obterOdometroAtual(Number.parseInt(carroId)).toLocaleString()} km
+                  </p>
+                )}
               </div>
-            </div>
+            )}
+
+            {tipoEvento === "Saída" && carroId && (
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <div className="flex items-center space-x-2 text-blue-700">
+                  <Gauge className="w-4 h-4" />
+                  <span className="text-sm font-medium">
+                    Odômetro na saída: {obterOdometroAtual(Number.parseInt(carroId)).toLocaleString()} km
+                  </span>
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  O odômetro será registrado automaticamente com o valor atual do veículo
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="observacoes">Observações</Label>
