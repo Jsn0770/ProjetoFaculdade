@@ -107,7 +107,6 @@ export default function Backup() {
 
   return (
     <div>
-      <Button onClick={() => criarBackup("manual")}>Criar Backup</Button>
       <Table>
         <TableCaption>Lista de backups salvos.</TableCaption>
         <TableHeader>
@@ -140,6 +139,9 @@ export default function Backup() {
           ))}
         </TableBody>
       </Table>
+      <div className="mt-auto">
+              <Button onClick={() => criarBackup("manual")}>Criar Backup</Button>
+      </div>
       <ConfirmDialog
         open={confirmDialog.open}
         title={confirmDialog.title}
