@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "banco": "node scripts/init-db.js"
   },
   "dependencies": {
     "@emotion/react": "latest",
@@ -45,6 +46,7 @@
     "@radix-ui/react-tooltip": "1.1.6",
     "@vitejs/plugin-react": "latest",
     "autoprefixer": "^10.4.20",
+    "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
@@ -56,9 +58,11 @@
     "globals": "latest",
     "input-otp": "1.4.1",
     "jiti": "latest",
+    "jsonwebtoken": "^9.0.2",
     "less": "latest",
     "lightningcss": "latest",
     "lucide-react": "^0.454.0",
+    "mysql2": "^3.14.1",
     "next": "15.2.4",
     "next-themes": "^0.4.4",
     "react": "^19",

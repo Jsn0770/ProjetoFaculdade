@@ -6,87 +6,73 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Car, Mail, Lock, Eye, EyeOff, UserPlus } from 'lucide-react'
+import { Car, Mail, Lock, Eye, EyeOff, UserPlus } from "lucide-react"
 import CadastroGestor from "./cadastro-gestor"
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
+  const [senha, setSenha] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showCadastro, setShowCadastro] = useState(false)
   const { toast } = useToast()
 
-  const verificarCredenciais = (email, senha) => {
-    // Verificar gestores cadastrados
-    const gestores = JSON.parse(localStorage.getItem("gestores") || "[]")
-    const gestorEncontrado = gestores.find(g => g.email === email && g.senha === senha)
-    
-    if (gestorEncontrado) {
-      return { success: true, gestor: gestorEncontrado }
-    }
-
-    // Fallback para admin padrão (para compatibilidade)
-    if (email === "admin@fleetflow.com" && senha === "123456") {
-      return { 
-        success: true, 
-        gestor: { 
-          id: 0, 
-          nome: "Administrador", 
-          email: "admin@fleetflow.com",
-          telefone: "(11) 99999-9999"
-        } 
-      }
-    }
-
-    return { success: false }
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     setIsLoading(true)
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    const resultado = verificarCredenciais(email, password)
-
-    if (resultado.success) {
-      onLogin({ 
-        email: resultado.gestor.email,
-        nome: resultado.gestor.nome,
-        id: resultado.gestor.id,
-        telefone: resultado.gestor.telefone
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, senha }),
       })
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: "Sucesso!",
+          description: result.message,
+        })
+
+        // Salvar token e dados do usuário
+        localStorage.setItem("token", result.data.token)
+        localStorage.setItem("user", JSON.stringify(result.data.user))
+
+        // Callback de login
+        onLogin(result.data.user)
+      } else {
+        toast({
+          title: "Erro de autenticação",
+          description: result.message,
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Erro no login:", error)
       toast({
-        title: "Login realizado com sucesso!",
-        description: `Bem-vindo, ${resultado.gestor.nome}!`,
-      })
-    } else {
-      toast({
-        title: "Erro no login",
-        description: "Email ou senha incorretos",
+        title: "Erro",
+        description: "Erro de conexão. Tente novamente.",
         variant: "destructive",
       })
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsLoading(false)
   }
 
   const handleCadastroSuccess = () => {
     setShowCadastro(false)
     toast({
-      title: "Cadastro concluído!",
-      description: "Agora você pode fazer login com suas credenciais",
+      title: "Cadastro realizado!",
+      description: "Agora você pode fazer login com suas credenciais.",
     })
   }
 
   if (showCadastro) {
-    return (
-      <CadastroGestor 
-        onBackToLogin={() => setShowCadastro(false)}
-        onCadastroSuccess={handleCadastroSuccess}
-      />
-    )
+    return <CadastroGestor onBackToLogin={() => setShowCadastro(false)} onCadastroSuccess={handleCadastroSuccess} />
   }
 
   return (
@@ -124,15 +110,15 @@ export default function Login({ onLogin }) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Senha</Label>
+                <Label htmlFor="senha">Senha</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <Input
-                    id="password"
+                    id="senha"
                     type={showPassword ? "text" : "password"}
-                    placeholder="Digite sua senha"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Sua senha"
+                    value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
                     className="pl-10 pr-10"
                     required
                   />
@@ -163,23 +149,22 @@ export default function Login({ onLogin }) {
                   <span className="w-full border-t" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-white px-2 text-muted-foreground">Ou</span>
+                  <span className="bg-white px-2 text-gray-500">Ou</span>
                 </div>
               </div>
 
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setShowCadastro(true)}
-              >
+              <Button variant="outline" className="w-full" onClick={() => setShowCadastro(true)}>
                 <UserPlus className="w-4 h-4 mr-2" />
                 Criar nova conta
               </Button>
             </div>
 
             <div className="mt-6 text-center">
-              <p className="text-sm text-gray-600">Credenciais de teste:</p>
-              <p className="text-xs text-gray-500 mt-1">Email: admin@fleetflow.com | Senha: 123456</p>
+              <p className="text-sm text-gray-600">
+                Credenciais padrão: <br />
+                <span className="font-mono text-xs">admin@fleetflow.com</span> <br />
+                <span className="font-mono text-xs">password</span>
+              </p>
             </div>
           </CardContent>
         </Card>

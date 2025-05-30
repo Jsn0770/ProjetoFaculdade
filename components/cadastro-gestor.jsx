@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Car, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, CheckCircle, XCircle } from "lucide-react"
+import { Car, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, CheckCircle, XCircle, Upload } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 
 export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
@@ -22,6 +22,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
   const [fotoPerfil, setFotoPerfil] = useState(null)
   const [previewFoto, setPreviewFoto] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const { toast } = useToast()
 
   // Validações em tempo real
@@ -65,123 +66,134 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
     return value
   }
 
-  const handleFotoChange = (e) => {
+  const handleFotoChange = async (e) => {
     const file = e.target.files[0]
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        // 5MB
-        toast({
-          title: "Erro",
-          description: "A foto deve ter no máximo 5MB",
-          variant: "destructive",
-        })
-        return
-      }
+    if (!file) return
 
+    // Validações locais
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Erro",
+        description: "A foto deve ter no máximo 5MB",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Erro",
+        description: "Formato não permitido. Use JPG, PNG ou WebP.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setUploadingPhoto(true)
+
+    try {
+      // Preview local
       const reader = new FileReader()
       reader.onload = (e) => {
         setPreviewFoto(e.target.result)
-        setFotoPerfil(e.target.result)
       }
       reader.readAsDataURL(file)
-    }
-  }
 
-  const verificarEmailExistente = (email) => {
-    const gestores = JSON.parse(localStorage.getItem("gestores") || "[]")
-    return gestores.some((gestor) => gestor.email === email)
+      // Upload para o servidor
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setFotoPerfil(result.data.url)
+        toast({
+          title: "Sucesso",
+          description: "Foto enviada com sucesso!",
+        })
+      } else {
+        throw new Error(result.message)
+      }
+    } catch (error) {
+      console.error("Erro no upload:", error)
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao enviar foto",
+        variant: "destructive",
+      })
+      setPreviewFoto(null)
+      setFotoPerfil(null)
+    } finally {
+      setUploadingPhoto(false)
+    }
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setIsLoading(true)
 
-    // Validações
-    if (!validacoes.nome) {
+    try {
+      const response = await fetch("/api/gestores/cadastro", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          nome: formData.nome,
+          email: formData.email,
+          telefone: formData.telefone,
+          senha: formData.senha,
+          confirmarSenha: formData.confirmarSenha,
+          fotoPerfil: fotoPerfil,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: "Sucesso!",
+          description: result.message,
+        })
+
+        // Limpar formulário
+        setFormData({
+          nome: "",
+          email: "",
+          telefone: "",
+          senha: "",
+          confirmarSenha: "",
+        })
+        setFotoPerfil(null)
+        setPreviewFoto(null)
+
+        // Callback de sucesso
+        setTimeout(() => {
+          onCadastroSuccess?.()
+        }, 2000)
+      } else {
+        toast({
+          title: "Erro de validação",
+          description: result.message,
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Erro no cadastro:", error)
       toast({
-        title: "Erro de validação",
-        description: "Nome deve ter pelo menos 2 caracteres",
+        title: "Erro",
+        description: "Erro de conexão. Tente novamente.",
         variant: "destructive",
       })
+    } finally {
       setIsLoading(false)
-      return
     }
-
-    if (!validacoes.email) {
-      toast({
-        title: "Erro de validação",
-        description: "Email inválido",
-        variant: "destructive",
-      })
-      setIsLoading(false)
-      return
-    }
-
-    if (verificarEmailExistente(formData.email)) {
-      toast({
-        title: "Erro de validação",
-        description: "Este email já está cadastrado",
-        variant: "destructive",
-      })
-      setIsLoading(false)
-      return
-    }
-
-    if (!validacoes.telefone) {
-      toast({
-        title: "Erro de validação",
-        description: "Telefone deve estar no formato (XX) XXXXX-XXXX",
-        variant: "destructive",
-      })
-      setIsLoading(false)
-      return
-    }
-
-    if (!validacoes.senha) {
-      toast({
-        title: "Erro de validação",
-        description: "Senha deve ter pelo menos 6 caracteres",
-        variant: "destructive",
-      })
-      setIsLoading(false)
-      return
-    }
-
-    if (!validacoes.senhasIguais) {
-      toast({
-        title: "Erro de validação",
-        description: "As senhas não coincidem",
-        variant: "destructive",
-      })
-      setIsLoading(false)
-      return
-    }
-
-    // Simular delay de cadastro
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    // Salvar gestor
-    const gestores = JSON.parse(localStorage.getItem("gestores") || "[]")
-    const novoGestor = {
-      id: Date.now(),
-      nome: formData.nome,
-      email: formData.email,
-      telefone: formData.telefone,
-      senha: formData.senha,
-      fotoPerfil: fotoPerfil,
-      dataCadastro: new Date().toISOString(),
-    }
-
-    gestores.push(novoGestor)
-    localStorage.setItem("gestores", JSON.stringify(gestores))
-
-    toast({
-      title: "Cadastro realizado com sucesso!",
-      description: "Você já pode fazer login com suas credenciais",
-    })
-
-    setIsLoading(false)
-    onCadastroSuccess?.()
   }
 
   const todosOsCamposValidos = Object.values(validacoes).every(Boolean)
@@ -241,8 +253,13 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
               <div className="space-y-2">
                 <Label htmlFor="foto">Foto de Perfil</Label>
                 <div className="flex items-center space-x-4">
-                  <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
-                    {previewFoto ? (
+                  <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-300">
+                    {uploadingPhoto ? (
+                      <div className="flex flex-col items-center">
+                        <Upload className="w-6 h-6 text-gray-400 animate-pulse" />
+                        <span className="text-xs text-gray-500">Enviando...</span>
+                      </div>
+                    ) : previewFoto ? (
                       <img
                         src={previewFoto || "/placeholder.svg"}
                         alt="Preview"
@@ -259,8 +276,9 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                       accept="image/*"
                       onChange={handleFotoChange}
                       className="cursor-pointer"
+                      disabled={uploadingPhoto}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Formatos aceitos: JPG, PNG. Máximo 5MB.</p>
+                    <p className="text-xs text-gray-500 mt-1">Formatos aceitos: JPG, PNG, WebP. Máximo 5MB.</p>
                   </div>
                 </div>
               </div>
@@ -428,7 +446,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
               <Button
                 type="submit"
                 className="w-full bg-blue-600 hover:bg-blue-700"
-                disabled={isLoading || !todosOsCamposValidos}
+                disabled={isLoading || !todosOsCamposValidos || uploadingPhoto}
               >
                 {isLoading ? "Cadastrando..." : "Criar Conta"}
               </Button>
