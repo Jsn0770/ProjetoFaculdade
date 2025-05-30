@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Car, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, CheckCircle, XCircle } from 'lucide-react'
+import { Car, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, CheckCircle, XCircle } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 
 export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
@@ -15,10 +15,12 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
     email: "",
     telefone: "",
     senha: "",
-    confirmarSenha: ""
+    confirmarSenha: "",
   })
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [fotoPerfil, setFotoPerfil] = useState(null)
+  const [previewFoto, setPreviewFoto] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
 
@@ -26,24 +28,24 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
   const validacoes = {
     nome: formData.nome.length >= 2,
     email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email),
-    telefone: /^$$\d{2}$$\s\d{4,5}-\d{4}$/.test(formData.telefone),
+    telefone: /^\(?\d{2}\)?\s\d{4,5}-\d{4}$/.test(formData.telefone),
     senha: formData.senha.length >= 6,
     senhaForte: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/.test(formData.senha),
-    senhasIguais: formData.senha === formData.confirmarSenha && formData.confirmarSenha.length > 0
+    senhasIguais: formData.senha === formData.confirmarSenha && formData.confirmarSenha.length > 0,
   }
 
   // Força da senha
   const calcularForcaSenha = () => {
     const senha = formData.senha
     let pontos = 0
-    
+
     if (senha.length >= 6) pontos += 20
     if (senha.length >= 8) pontos += 20
     if (/[a-z]/.test(senha)) pontos += 20
     if (/[A-Z]/.test(senha)) pontos += 20
     if (/\d/.test(senha)) pontos += 10
     if (/[@$!%*?&]/.test(senha)) pontos += 10
-    
+
     return pontos
   }
 
@@ -52,20 +54,42 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
   const textoForcaSenha = forcaSenha < 40 ? "Fraca" : forcaSenha < 70 ? "Média" : "Forte"
 
   const handleInputChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+    setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
   const formatarTelefone = (value) => {
-    const numbers = value.replace(/\D/g, '')
+    const numbers = value.replace(/\D/g, "")
     if (numbers.length <= 11) {
-      return numbers.replace(/(\d{2})(\d{4,5})(\d{4})/, '($1) $2-$3')
+      return numbers.replace(/(\d{2})(\d{4,5})(\d{4})/, "($1) $2-$3")
     }
     return value
   }
 
+  const handleFotoChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        // 5MB
+        toast({
+          title: "Erro",
+          description: "A foto deve ter no máximo 5MB",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setPreviewFoto(e.target.result)
+        setFotoPerfil(e.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const verificarEmailExistente = (email) => {
     const gestores = JSON.parse(localStorage.getItem("gestores") || "[]")
-    return gestores.some(gestor => gestor.email === email)
+    return gestores.some((gestor) => gestor.email === email)
   }
 
   const handleSubmit = async (e) => {
@@ -134,7 +158,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
     }
 
     // Simular delay de cadastro
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    await new Promise((resolve) => setTimeout(resolve, 1500))
 
     // Salvar gestor
     const gestores = JSON.parse(localStorage.getItem("gestores") || "[]")
@@ -143,8 +167,9 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
       nome: formData.nome,
       email: formData.email,
       telefone: formData.telefone,
-      senha: formData.senha, // Em produção, seria hasheada
-      dataCadastro: new Date().toISOString()
+      senha: formData.senha,
+      fotoPerfil: fotoPerfil,
+      dataCadastro: new Date().toISOString(),
     }
 
     gestores.push(novoGestor)
@@ -175,12 +200,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
         <Card className="shadow-xl border-0">
           <CardHeader className="space-y-1 pb-6">
             <div className="flex items-center space-x-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onBackToLogin}
-                className="p-2"
-              >
+              <Button variant="ghost" size="sm" onClick={onBackToLogin} className="p-2">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
               <div>
@@ -202,7 +222,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                     placeholder="Seu nome completo"
                     value={formData.nome}
                     onChange={(e) => handleInputChange("nome", e.target.value)}
-                    className={`pl-10 ${validacoes.nome ? 'border-green-500' : formData.nome ? 'border-red-500' : ''}`}
+                    className={`pl-10 ${validacoes.nome ? "border-green-500" : formData.nome ? "border-red-500" : ""}`}
                     required
                   />
                   {formData.nome && (
@@ -217,6 +237,34 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                 </div>
               </div>
 
+              {/* Foto de Perfil */}
+              <div className="space-y-2">
+                <Label htmlFor="foto">Foto de Perfil</Label>
+                <div className="flex items-center space-x-4">
+                  <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
+                    {previewFoto ? (
+                      <img
+                        src={previewFoto || "/placeholder.svg"}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User className="w-8 h-8 text-gray-400" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <Input
+                      id="foto"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFotoChange}
+                      className="cursor-pointer"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Formatos aceitos: JPG, PNG. Máximo 5MB.</p>
+                  </div>
+                </div>
+              </div>
+
               {/* Email */}
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -228,7 +276,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                     placeholder="seu@email.com"
                     value={formData.email}
                     onChange={(e) => handleInputChange("email", e.target.value)}
-                    className={`pl-10 ${validacoes.email ? 'border-green-500' : formData.email ? 'border-red-500' : ''}`}
+                    className={`pl-10 ${validacoes.email ? "border-green-500" : formData.email ? "border-red-500" : ""}`}
                     required
                   />
                   {formData.email && (
@@ -254,7 +302,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                     placeholder="(11) 99999-9999"
                     value={formData.telefone}
                     onChange={(e) => handleInputChange("telefone", formatarTelefone(e.target.value))}
-                    className={`pl-10 ${validacoes.telefone ? 'border-green-500' : formData.telefone ? 'border-red-500' : ''}`}
+                    className={`pl-10 ${validacoes.telefone ? "border-green-500" : formData.telefone ? "border-red-500" : ""}`}
                     maxLength={15}
                     required
                   />
@@ -281,7 +329,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                     placeholder="Sua senha"
                     value={formData.senha}
                     onChange={(e) => handleInputChange("senha", e.target.value)}
-                    className={`pl-10 pr-10 ${validacoes.senha ? 'border-green-500' : formData.senha ? 'border-red-500' : ''}`}
+                    className={`pl-10 pr-10 ${validacoes.senha ? "border-green-500" : formData.senha ? "border-red-500" : ""}`}
                     required
                   />
                   <Button
@@ -298,13 +346,15 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                     )}
                   </Button>
                 </div>
-                
+
                 {/* Indicador de força da senha */}
                 {formData.senha && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-600">Força da senha:</span>
-                      <span className={`font-medium ${forcaSenha < 40 ? 'text-red-600' : forcaSenha < 70 ? 'text-yellow-600' : 'text-green-600'}`}>
+                      <span
+                        className={`font-medium ${forcaSenha < 40 ? "text-red-600" : forcaSenha < 70 ? "text-yellow-600" : "text-green-600"}`}
+                      >
                         {textoForcaSenha}
                       </span>
                     </div>
@@ -312,17 +362,29 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                     <div className="text-xs text-gray-500 space-y-1">
                       <p>A senha deve conter:</p>
                       <ul className="space-y-1 ml-2">
-                        <li className={`flex items-center space-x-1 ${formData.senha.length >= 6 ? 'text-green-600' : 'text-gray-400'}`}>
-                          <span>•</span><span>Pelo menos 6 caracteres</span>
+                        <li
+                          className={`flex items-center space-x-1 ${formData.senha.length >= 6 ? "text-green-600" : "text-gray-400"}`}
+                        >
+                          <span>•</span>
+                          <span>Pelo menos 6 caracteres</span>
                         </li>
-                        <li className={`flex items-center space-x-1 ${/[A-Z]/.test(formData.senha) ? 'text-green-600' : 'text-gray-400'}`}>
-                          <span>•</span><span>Uma letra maiúscula</span>
+                        <li
+                          className={`flex items-center space-x-1 ${/[A-Z]/.test(formData.senha) ? "text-green-600" : "text-gray-400"}`}
+                        >
+                          <span>•</span>
+                          <span>Uma letra maiúscula</span>
                         </li>
-                        <li className={`flex items-center space-x-1 ${/\d/.test(formData.senha) ? 'text-green-600' : 'text-gray-400'}`}>
-                          <span>•</span><span>Um número</span>
+                        <li
+                          className={`flex items-center space-x-1 ${/\d/.test(formData.senha) ? "text-green-600" : "text-gray-400"}`}
+                        >
+                          <span>•</span>
+                          <span>Um número</span>
                         </li>
-                        <li className={`flex items-center space-x-1 ${/[@$!%*?&]/.test(formData.senha) ? 'text-green-600' : 'text-gray-400'}`}>
-                          <span>•</span><span>Um caractere especial</span>
+                        <li
+                          className={`flex items-center space-x-1 ${/[@$!%*?&]/.test(formData.senha) ? "text-green-600" : "text-gray-400"}`}
+                        >
+                          <span>•</span>
+                          <span>Um caractere especial</span>
                         </li>
                       </ul>
                     </div>
@@ -341,7 +403,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                     placeholder="Confirme sua senha"
                     value={formData.confirmarSenha}
                     onChange={(e) => handleInputChange("confirmarSenha", e.target.value)}
-                    className={`pl-10 pr-10 ${validacoes.senhasIguais ? 'border-green-500' : formData.confirmarSenha ? 'border-red-500' : ''}`}
+                    className={`pl-10 pr-10 ${validacoes.senhasIguais ? "border-green-500" : formData.confirmarSenha ? "border-red-500" : ""}`}
                     required
                   />
                   <Button
@@ -363,9 +425,9 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
                 )}
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full bg-blue-600 hover:bg-blue-700" 
+              <Button
+                type="submit"
+                className="w-full bg-blue-600 hover:bg-blue-700"
                 disabled={isLoading || !todosOsCamposValidos}
               >
                 {isLoading ? "Cadastrando..." : "Criar Conta"}
