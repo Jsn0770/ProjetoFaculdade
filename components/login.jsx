@@ -163,7 +163,7 @@ export default function Login({ onLogin }) {
               <p className="text-sm text-gray-600">
                 Credenciais padrão: <br />
                 <span className="font-mono text-xs">admin@fleetflow.com</span> <br />
-                <span className="font-mono text-xs">password</span>
+                <span className="font-mono text-xs">admin123</span>
               </p>
             </div>
           </CardContent>

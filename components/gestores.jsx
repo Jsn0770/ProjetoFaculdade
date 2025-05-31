@@ -14,11 +14,26 @@ export default function Gestores() {
   const [error, setError] = useState(null)
   const { toast } = useToast()
   const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  // No useEffect inicial, verificar se é admin
+  useEffect(() => {
+    const userData = localStorage.getItem("user")
+    if (userData) {
+      const user = JSON.parse(userData)
+      setIsAdmin(user.email === "admin@fleetflow.com" || user.role === "admin")
+    }
+  }, [])
 
   // Função para buscar gestores da API
   const fetchGestores = async () => {
     try {
-      setLoading(true)
+      if (busca) {
+        setSearchLoading(true)
+      } else {
+        setLoading(true)
+      }
       setError(null)
 
       const url = busca ? `/api/gestores?busca=${encodeURIComponent(busca)}` : "/api/gestores"
@@ -45,6 +60,7 @@ export default function Gestores() {
       })
     } finally {
       setLoading(false)
+      setSearchLoading(false)
     }
   }
 
@@ -53,11 +69,11 @@ export default function Gestores() {
     fetchGestores()
   }, [])
 
-  // Buscar quando o termo de busca mudar (com debounce)
+  // Buscar com debounce otimizado (300ms)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       fetchGestores()
-    }, 500)
+    }, 300)
 
     return () => clearTimeout(timeoutId)
   }, [busca])
@@ -150,11 +166,12 @@ export default function Gestores() {
             <CardTitle>Lista de Gestores</CardTitle>
             <div className="relative w-64">
               <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              {searchLoading && <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-gray-400" />}
               <Input
                 placeholder="Buscar gestores..."
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                className="pl-10"
+                className="pl-10 pr-10"
               />
             </div>
           </div>
@@ -186,9 +203,9 @@ export default function Gestores() {
                 <CardContent className="p-6">
                   <div className="flex items-center space-x-4">
                     <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
-                      {gestor.fotoPerfil ? (
+                      {gestor.foto_perfil ? (
                         <img
-                          src={gestor.fotoPerfil || "/placeholder.svg"}
+                          src={gestor.foto_perfil || "/placeholder.svg"}
                           alt={gestor.nome}
                           className="w-full h-full object-cover"
                         />
@@ -201,7 +218,7 @@ export default function Gestores() {
                       <p className="text-sm text-gray-600">{gestor.email}</p>
                       <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
                         <span>{contarEventosPorGestor(gestor.id, gestor.email)} eventos</span>
-                        <span>{new Date(gestor.dataCadastro).toLocaleDateString("pt-BR")}</span>
+                        <span>Criado em: {new Date(gestor.data_cadastro).toLocaleDateString("pt-BR")}</span>
                       </div>
                     </div>
                   </div>
@@ -210,7 +227,7 @@ export default function Gestores() {
                       <span className="text-gray-500">Telefone:</span>
                       <span className="font-mono">{gestor.telefone}</span>
                     </div>
-                    {gestor.role !== "admin" && (
+                    {isAdmin && gestor.role !== "admin" && (
                       <div className="mt-2 flex justify-end">
                         <button
                           onClick={() => handleDelete(gestor.id, gestor.nome)}
