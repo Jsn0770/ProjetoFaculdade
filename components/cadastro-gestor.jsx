@@ -29,7 +29,7 @@ export default function CadastroGestor({ onBackToLogin, onCadastroSuccess }) {
   const validacoes = {
     nome: formData.nome.length >= 2,
     email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email),
-    telefone: /^\(?\d{2}\)?\s\d{4,5}-\d{4}$/.test(formData.telefone),
+    telefone: /^\(\d{2}\)\s\d{4,5}-\d{4}$/.test(formData.telefone),
     senha: formData.senha.length >= 6,
     senhaForte: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/.test(formData.senha),
     senhasIguais: formData.senha === formData.confirmarSenha && formData.confirmarSenha.length > 0,

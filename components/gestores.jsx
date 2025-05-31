@@ -4,52 +4,100 @@ import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Search, UserCog, User } from "lucide-react"
+import { Search, UserCog, User, Loader2 } from "lucide-react"
 import ConfirmDialog from "./confirm-dialog"
 
 export default function Gestores() {
   const [gestores, setGestores] = useState([])
   const [busca, setBusca] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const { toast } = useToast()
   const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
 
-  useEffect(() => {
-    const dados = localStorage.getItem("gestores")
-    if (dados) {
-      setGestores(JSON.parse(dados))
+  // Função para buscar gestores da API
+  const fetchGestores = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const url = busca ? `/api/gestores?busca=${encodeURIComponent(busca)}` : "/api/gestores"
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        throw new Error("Erro ao carregar gestores")
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        setGestores(data.data)
+      } else {
+        throw new Error(data.message || "Erro ao carregar gestores")
+      }
+    } catch (error) {
+      console.error("Erro ao buscar gestores:", error)
+      setError(error.message)
+      toast({
+        title: "Erro",
+        description: "Erro ao carregar gestores",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
     }
-  }, [])
-
-  useEffect(() => {
-    localStorage.setItem("gestores", JSON.stringify(gestores))
-  }, [gestores])
-
-  const verificarEmailExistente = (email, idExcluir = null) => {
-    return gestores.some((gestor) => gestor.email === email && gestor.id !== idExcluir)
   }
 
-  const handleDelete = (id, nome) => {
+  // Carregar gestores ao montar o componente
+  useEffect(() => {
+    fetchGestores()
+  }, [])
+
+  // Buscar quando o termo de busca mudar (com debounce)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchGestores()
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
+  }, [busca])
+
+  const handleDelete = async (id, nome) => {
     setConfirmDialog({
       open: true,
       title: "Confirmar Exclusão",
       message: `Tem certeza que deseja excluir o gestor "${nome}"? Esta ação não pode ser desfeita.`,
-      onConfirm: () => {
-        setGestores(gestores.filter((g) => g.id !== id))
-        toast({
-          title: "Sucesso",
-          description: "Gestor removido com sucesso",
-        })
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`/api/gestores?id=${id}`, {
+            method: "DELETE",
+          })
+
+          const data = await response.json()
+
+          if (data.success) {
+            toast({
+              title: "Sucesso",
+              description: "Gestor removido com sucesso",
+            })
+            // Recarregar a lista
+            fetchGestores()
+          } else {
+            throw new Error(data.message || "Erro ao remover gestor")
+          }
+        } catch (error) {
+          console.error("Erro ao deletar gestor:", error)
+          toast({
+            title: "Erro",
+            description: error.message || "Erro ao remover gestor",
+            variant: "destructive",
+          })
+        }
+
         setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
       },
     })
   }
-
-  const gestoresFiltrados = gestores.filter(
-    (g) =>
-      g.nome.toLowerCase().includes(busca.toLowerCase()) ||
-      g.email.toLowerCase().includes(busca.toLowerCase()) ||
-      g.telefone.includes(busca),
-  )
 
   const contarEventosPorGestor = (gestorId, gestorEmail) => {
     const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
@@ -57,6 +105,30 @@ export default function Gestores() {
       return eventos.filter((e) => e.gestorId === "admin").length
     }
     return eventos.filter((e) => e.gestorId === gestorId).length
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-500" />
+          <span className="ml-2 text-gray-500">Carregando gestores...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center py-12">
+          <p className="text-red-500 mb-4">Erro ao carregar gestores: {error}</p>
+          <button onClick={fetchGestores} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -108,8 +180,8 @@ export default function Gestores() {
               </CardContent>
             </Card>
 
-            {/* Gestores Cadastrados */}
-            {gestoresFiltrados.map((gestor) => (
+            {/* Gestores da API */}
+            {gestores.map((gestor) => (
               <Card key={gestor.id} className="hover:shadow-md transition-shadow">
                 <CardContent className="p-6">
                   <div className="flex items-center space-x-4">
@@ -138,13 +210,23 @@ export default function Gestores() {
                       <span className="text-gray-500">Telefone:</span>
                       <span className="font-mono">{gestor.telefone}</span>
                     </div>
+                    {gestor.role !== "admin" && (
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          onClick={() => handleDelete(gestor.id, gestor.nome)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
 
-          {gestoresFiltrados.length === 0 && (
+          {gestores.length === 0 && !loading && (
             <div className="text-center py-8">
               <UserCog className="w-12 h-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500">Nenhum gestor encontrado</p>

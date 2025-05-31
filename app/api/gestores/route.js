@@ -1,19 +1,6 @@
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-
-// Simulando um banco de dados em memória (em produção seria um banco real)
-const gestores = [
-  {
-    id: 1,
-    nome: "Administrador",
-    email: "admin@fleetflow.com",
-    telefone: "(11) 99999-9999",
-    senha: "$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi", // password
-    fotoPerfil: null,
-    dataCadastro: new Date().toISOString(),
-    role: "admin",
-  },
-]
+import { executeQuery } from "@/lib/database"
 
 // GET - Listar todos os gestores
 export async function GET(request) {
@@ -21,27 +8,34 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url)
     const busca = searchParams.get("busca")
 
-    let gestoresFiltrados = gestores
+    let query = "SELECT id, nome, email, telefone, foto_perfil, role, data_cadastro FROM gestores"
+    let params = []
 
     if (busca) {
-      gestoresFiltrados = gestores.filter(
-        (gestor) =>
-          gestor.nome.toLowerCase().includes(busca.toLowerCase()) ||
-          gestor.email.toLowerCase().includes(busca.toLowerCase()) ||
-          gestor.telefone.includes(busca),
-      )
+      query += " WHERE nome LIKE ? OR email LIKE ? OR telefone LIKE ?"
+      const searchTerm = `%${busca}%`
+      params = [searchTerm, searchTerm, searchTerm]
     }
 
-    // Remove senhas da resposta
-    const gestoresSemSenha = gestoresFiltrados.map(({ senha, ...gestor }) => gestor)
+    query += " ORDER BY data_cadastro DESC"
+
+    const gestores = await executeQuery(query, params)
 
     return NextResponse.json({
       success: true,
-      data: gestoresSemSenha,
-      total: gestoresSemSenha.length,
+      data: gestores,
+      total: gestores.length,
     })
   } catch (error) {
-    return NextResponse.json({ success: false, message: "Erro interno do servidor" }, { status: 500 })
+    console.error("❌ Erro ao buscar gestores:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Erro interno do servidor",
+        error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      },
+      { status: 500 },
+    )
   }
 }
 
@@ -51,7 +45,7 @@ export async function POST(request) {
     const body = await request.json()
     const { nome, email, telefone, senha, fotoPerfil } = body
 
-    // Validações
+    // Validações básicas
     if (!nome || !email || !telefone || !senha) {
       return NextResponse.json({ success: false, message: "Todos os campos são obrigatórios" }, { status: 400 })
     }
@@ -63,7 +57,7 @@ export async function POST(request) {
     }
 
     // Validar telefone
-    const telefoneRegex = /^$$\d{2}$$\s\d{4,5}-\d{4}$/
+    const telefoneRegex = /^\(\d{2}\)\s\d{4,5}-\d{4}$/
     if (!telefoneRegex.test(telefone)) {
       return NextResponse.json(
         { success: false, message: "Telefone deve estar no formato (XX) XXXXX-XXXX" },
@@ -72,8 +66,9 @@ export async function POST(request) {
     }
 
     // Verificar se email já existe
-    const emailExiste = gestores.find((g) => g.email === email)
-    if (emailExiste) {
+    const emailExiste = await executeQuery("SELECT id FROM gestores WHERE email = ?", [email.toLowerCase().trim()])
+
+    if (emailExiste.length > 0) {
       return NextResponse.json({ success: false, message: "Este email já está cadastrado" }, { status: 409 })
     }
 
@@ -85,33 +80,43 @@ export async function POST(request) {
     // Hash da senha
     const senhaHash = await bcrypt.hash(senha, 10)
 
-    // Criar novo gestor
-    const novoGestor = {
-      id: Date.now(),
-      nome,
-      email,
-      telefone,
-      senha: senhaHash,
-      fotoPerfil: fotoPerfil || null,
-      dataCadastro: new Date().toISOString(),
-      role: "gestor",
-    }
+    // Inserir novo gestor no banco
+    const result = await executeQuery(
+      `INSERT INTO gestores (nome, email, telefone, senha, foto_perfil, role) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [nome.trim(), email.toLowerCase().trim(), telefone, senhaHash, fotoPerfil || null, "gestor"],
+    )
 
-    gestores.push(novoGestor)
+    // Buscar o gestor criado (sem a senha)
+    const novoGestor = await executeQuery(
+      "SELECT id, nome, email, telefone, foto_perfil, role, data_cadastro FROM gestores WHERE id = ?",
+      [result.insertId],
+    )
 
-    // Retornar sem a senha
-    const { senha: _, ...gestorSemSenha } = novoGestor
+    console.log("✅ Novo gestor cadastrado:", {
+      id: result.insertId,
+      nome: nome.trim(),
+      email: email.toLowerCase().trim(),
+    })
 
     return NextResponse.json(
       {
         success: true,
         message: "Gestor cadastrado com sucesso",
-        data: gestorSemSenha,
+        data: novoGestor[0],
       },
       { status: 201 },
     )
   } catch (error) {
-    return NextResponse.json({ success: false, message: "Erro interno do servidor" }, { status: 500 })
+    console.error("❌ Erro ao criar gestor:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Erro interno do servidor",
+        error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      },
+      { status: 500 },
+    )
   }
 }
 
@@ -125,8 +130,10 @@ export async function PUT(request) {
       return NextResponse.json({ success: false, message: "ID é obrigatório" }, { status: 400 })
     }
 
-    const gestorIndex = gestores.findIndex((g) => g.id === id)
-    if (gestorIndex === -1) {
+    // Verificar se gestor existe
+    const gestorExiste = await executeQuery("SELECT id FROM gestores WHERE id = ?", [id])
+
+    if (gestorExiste.length === 0) {
       return NextResponse.json({ success: false, message: "Gestor não encontrado" }, { status: 404 })
     }
 
@@ -138,14 +145,18 @@ export async function PUT(request) {
       }
 
       // Verificar se email já existe (exceto o próprio)
-      const emailExiste = gestores.find((g) => g.email === email && g.id !== id)
-      if (emailExiste) {
+      const emailExiste = await executeQuery("SELECT id FROM gestores WHERE email = ? AND id != ?", [
+        email.toLowerCase().trim(),
+        id,
+      ])
+
+      if (emailExiste.length > 0) {
         return NextResponse.json({ success: false, message: "Este email já está cadastrado" }, { status: 409 })
       }
     }
 
     if (telefone) {
-      const telefoneRegex = /^$$\d{2}$$\s\d{4,5}-\d{4}$/
+      const telefoneRegex = /^\(\d{2}\)\s\d{4,5}-\d{4}$/
       if (!telefoneRegex.test(telefone)) {
         return NextResponse.json(
           { success: false, message: "Telefone deve estar no formato (XX) XXXXX-XXXX" },
@@ -154,34 +165,66 @@ export async function PUT(request) {
       }
     }
 
-    // Atualizar campos
-    const gestorAtualizado = { ...gestores[gestorIndex] }
+    // Construir query de atualização dinamicamente
+    const updateFields = []
+    const updateValues = []
 
-    if (nome) gestorAtualizado.nome = nome
-    if (email) gestorAtualizado.email = email
-    if (telefone) gestorAtualizado.telefone = telefone
-    if (fotoPerfil !== undefined) gestorAtualizado.fotoPerfil = fotoPerfil
-
-    // Se senha foi fornecida, fazer hash
+    if (nome) {
+      updateFields.push("nome = ?")
+      updateValues.push(nome.trim())
+    }
+    if (email) {
+      updateFields.push("email = ?")
+      updateValues.push(email.toLowerCase().trim())
+    }
+    if (telefone) {
+      updateFields.push("telefone = ?")
+      updateValues.push(telefone)
+    }
+    if (fotoPerfil !== undefined) {
+      updateFields.push("foto_perfil = ?")
+      updateValues.push(fotoPerfil)
+    }
     if (senha) {
       if (senha.length < 6) {
         return NextResponse.json({ success: false, message: "Senha deve ter pelo menos 6 caracteres" }, { status: 400 })
       }
-      gestorAtualizado.senha = await bcrypt.hash(senha, 10)
+      const senhaHash = await bcrypt.hash(senha, 10)
+      updateFields.push("senha = ?")
+      updateValues.push(senhaHash)
     }
 
-    gestores[gestorIndex] = gestorAtualizado
+    if (updateFields.length === 0) {
+      return NextResponse.json({ success: false, message: "Nenhum campo para atualizar" }, { status: 400 })
+    }
 
-    // Retornar sem a senha
-    const { senha: _, ...gestorSemSenha } = gestorAtualizado
+    // Adicionar ID no final dos valores
+    updateValues.push(id)
+
+    // Executar atualização
+    await executeQuery(`UPDATE gestores SET ${updateFields.join(", ")} WHERE id = ?`, updateValues)
+
+    // Buscar gestor atualizado (sem a senha)
+    const gestorAtualizado = await executeQuery(
+      "SELECT id, nome, email, telefone, foto_perfil, role, data_cadastro FROM gestores WHERE id = ?",
+      [id],
+    )
 
     return NextResponse.json({
       success: true,
       message: "Gestor atualizado com sucesso",
-      data: gestorSemSenha,
+      data: gestorAtualizado[0],
     })
   } catch (error) {
-    return NextResponse.json({ success: false, message: "Erro interno do servidor" }, { status: 500 })
+    console.error("❌ Erro ao atualizar gestor:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Erro interno do servidor",
+        error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      },
+      { status: 500 },
+    )
   }
 }
 
@@ -195,23 +238,34 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, message: "ID é obrigatório" }, { status: 400 })
     }
 
-    const gestorIndex = gestores.findIndex((g) => g.id === id)
-    if (gestorIndex === -1) {
+    // Verificar se gestor existe
+    const gestor = await executeQuery("SELECT id, role FROM gestores WHERE id = ?", [id])
+
+    if (gestor.length === 0) {
       return NextResponse.json({ success: false, message: "Gestor não encontrado" }, { status: 404 })
     }
 
     // Não permitir deletar admin
-    if (gestores[gestorIndex].role === "admin") {
+    if (gestor[0].role === "admin") {
       return NextResponse.json({ success: false, message: "Não é possível deletar o administrador" }, { status: 403 })
     }
 
-    gestores.splice(gestorIndex, 1)
+    // Deletar gestor
+    await executeQuery("DELETE FROM gestores WHERE id = ?", [id])
 
     return NextResponse.json({
       success: true,
       message: "Gestor removido com sucesso",
     })
   } catch (error) {
-    return NextResponse.json({ success: false, message: "Erro interno do servidor" }, { status: 500 })
+    console.error("❌ Erro ao deletar gestor:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Erro interno do servidor",
+        error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      },
+      { status: 500 },
+    )
   }
 }
