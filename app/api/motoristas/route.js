@@ -7,6 +7,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url)
     const busca = searchParams.get("busca") || ""
 
+    // Verificar se a coluna status existe, se não, usar um valor padrão
     let query = `
       SELECT 
         id,
@@ -15,7 +16,7 @@ export async function GET(request) {
         cnh,
         vencimento_cnh,
         categoria,
-        status,
+        COALESCE(status, 'Disponível') as status,
         observacoes,
         data_cadastro,
         data_atualizacao

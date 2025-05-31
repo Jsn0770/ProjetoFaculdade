@@ -28,6 +28,7 @@ export default function Motoristas() {
   const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [eventos, setEventos] = useState([])
 
   const carregarMotoristas = useCallback(
     async (termoBusca = "") => {
@@ -39,6 +40,7 @@ export default function Motoristas() {
         const data = await response.json()
 
         if (data.success) {
+          console.log("Dados dos motoristas:", data.data) // Para debug
           setMotoristas(data.data)
         } else {
           toast({
@@ -61,9 +63,38 @@ export default function Motoristas() {
     [toast],
   )
 
+  const carregarEventos = useCallback(async () => {
+    try {
+      const response = await fetch("/api/eventos")
+      if (response.ok) {
+        const data = await response.json()
+        setEventos(data.data || [])
+      }
+    } catch (error) {
+      console.error("Erro ao carregar eventos:", error)
+    }
+  }, [])
+
+  const forcarAtualizacao = useCallback(async () => {
+    // Recarregar eventos primeiro
+    await carregarEventos()
+    // Depois recarregar motoristas
+    await carregarMotoristas()
+    // Forçar re-render
+    setMotoristas((prev) => [...prev])
+  }, [carregarEventos, carregarMotoristas])
+
   useEffect(() => {
     carregarMotoristas()
-  }, [carregarMotoristas])
+    carregarEventos()
+
+    // Atualizar dados a cada 30 segundos para manter sincronizado
+    const interval = setInterval(() => {
+      carregarEventos()
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [carregarMotoristas, carregarEventos])
 
   const resetForm = () => {
     setNome("")
@@ -77,21 +108,55 @@ export default function Motoristas() {
   }
 
   const verificarDisponibilidade = () => {
-    const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
-
     return motoristas.map((motorista) => {
-      // Verificar se há saída sem chegada
-      const saidasSemChegada = eventos.filter(
-        (e) =>
-          e.motoristaId === motorista.id &&
-          e.tipo === "Saída" &&
-          !eventos.some(
-            (chegada) =>
-              chegada.motoristaId === motorista.id &&
-              chegada.tipo === "Chegada" &&
-              new Date(chegada.dataHora) > new Date(e.dataHora),
-          ),
-      )
+      // Buscar todas as saídas do motorista ordenadas por data (mais recente primeiro)
+      const saidasMotorista = eventos
+        .filter((e) => e.motorista_id === motorista.id && e.tipo === "Saída")
+        .sort((a, b) => {
+          // Converter as datas para comparação correta
+          const dataA = new Date(
+            a.data_hora.split(" ")[0].split("/").reverse().join("-") + " " + a.data_hora.split(" ")[1],
+          )
+          const dataB = new Date(
+            b.data_hora.split(" ")[0].split("/").reverse().join("-") + " " + b.data_hora.split(" ")[1],
+          )
+          return dataB - dataA
+        })
+
+      let emViagem = false
+      let carroAtual = null
+
+      if (saidasMotorista.length > 0) {
+        // Pegar a saída mais recente
+        const ultimaSaida = saidasMotorista[0]
+
+        // Converter data da última saída para comparação
+        const dataUltimaSaida = new Date(
+          ultimaSaida.data_hora.split(" ")[0].split("/").reverse().join("-") +
+            " " +
+            ultimaSaida.data_hora.split(" ")[1],
+        )
+
+        // Buscar chegadas do motorista posteriores à última saída
+        const chegadasPosteriores = eventos.filter((e) => {
+          if (e.motorista_id !== motorista.id || e.tipo !== "Chegada") {
+            return false
+          }
+
+          // Converter data da chegada para comparação
+          const dataChegada = new Date(
+            e.data_hora.split(" ")[0].split("/").reverse().join("-") + " " + e.data_hora.split(" ")[1],
+          )
+
+          return dataChegada > dataUltimaSaida
+        })
+
+        // Se não há chegada posterior à última saída, motorista está em viagem
+        if (chegadasPosteriores.length === 0) {
+          emViagem = true
+          carroAtual = ultimaSaida.carro_info
+        }
+      }
 
       // Verificar CNH vencida
       const hoje = new Date()
@@ -100,7 +165,7 @@ export default function Motoristas() {
       let statusCalculado = motorista.status
       const motivo = []
 
-      if (saidasSemChegada.length > 0) {
+      if (emViagem) {
         statusCalculado = "Em Viagem"
         motivo.push("Motorista em viagem")
       } else if (cnhVencida) {
@@ -120,7 +185,7 @@ export default function Motoristas() {
         ...motorista,
         statusCalculado,
         motivoIndisponibilidade: motivo.join(", "),
-        carroAtual: saidasSemChegada.length > 0 ? saidasSemChegada[0].carroInfo : null,
+        carroAtual,
       }
     })
   }
@@ -255,7 +320,6 @@ export default function Motoristas() {
       toast({
         title: "Erro",
         description: "Erro ao conectar com o servidor",
-        variant: "destructive",
       })
     } finally {
       setLoading(false)
