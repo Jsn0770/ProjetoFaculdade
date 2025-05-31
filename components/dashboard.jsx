@@ -4,7 +4,20 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Car, Users, Calendar, TrendingUp, Activity, MapPin, AlertTriangle, Clock, Settings, Gauge } from "lucide-react"
+import {
+  Car,
+  Users,
+  Calendar,
+  TrendingUp,
+  Activity,
+  MapPin,
+  AlertTriangle,
+  Clock,
+  Settings,
+  Gauge,
+  RefreshCw,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, LineChart, Line } from "recharts"
 
@@ -27,35 +40,77 @@ export default function Dashboard() {
     quilometragemMensal: [],
   })
 
+  const [loading, setLoading] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState(null)
+
+  // Carregar dados da API
+  const carregarDados = async () => {
+    try {
+      setLoading(true)
+
+      // Buscar dados das APIs
+      const [carrosRes, motoristasRes, eventosRes] = await Promise.all([
+        fetch("/api/carros"),
+        fetch("/api/motoristas"),
+        fetch("/api/eventos"),
+      ])
+
+      const carrosData = await carrosRes.json()
+      const motoristasData = await motoristasRes.json()
+      const eventosData = await eventosRes.json()
+
+      const carros = carrosData.carros || []
+      const motoristas = motoristasData.data || []
+      const eventos = eventosData.data || []
+
+      // Calcular estatísticas
+      calcularEstatisticas(carros, motoristas, eventos)
+
+      // Gerar alertas
+      gerarAlertas(carros, motoristas, eventos)
+
+      // Gerar dados dos gráficos
+      gerarDadosGraficos(carros, motoristas, eventos)
+
+      setLastUpdate(new Date())
+    } catch (error) {
+      console.error("Erro ao carregar dados do dashboard:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    const carros = JSON.parse(localStorage.getItem("carros") || "[]")
-    const motoristas = JSON.parse(localStorage.getItem("motoristas") || "[]")
-    const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
+    carregarDados()
 
-    // Calcular estatísticas
-    const carrosDisponiveis = carros.filter((c) => getCarroStatus(c, eventos) === "Disponível").length
-    const motoristasDisponiveis = motoristas.filter((m) => getMotoristaStatus(m, eventos) === "Disponível").length
+    // Atualizar dados a cada 5 minutos
+    const interval = setInterval(carregarDados, 5 * 60 * 1000)
 
-    // Calcular quilometragem total
-    const quilometragemTotal = eventos
-      .filter((e) => e.tipo === "Chegada" && e.odometro)
-      .reduce((total, chegada) => {
-        const saida = eventos.find(
-          (s) =>
-            s.tipo === "Saída" &&
-            s.carroId === chegada.carroId &&
-            s.motoristaId === chegada.motoristaId &&
-            new Date(s.dataHora) < new Date(chegada.dataHora),
-        )
-        if (saida && saida.odometro) {
-          return total + (chegada.odometro - saida.odometro)
-        }
-        return total
-      }, 0)
+    return () => clearInterval(interval)
+  }, [])
+
+  const calcularEstatisticas = (carros, motoristas, eventos) => {
+    // Calcular carros disponíveis
+    const carrosDisponiveis = carros.filter((carro) => {
+      const status = getCarroStatus(carro, eventos)
+      return status === "Disponível"
+    }).length
+
+    // Calcular motoristas disponíveis
+    const motoristasDisponiveis = motoristas.filter((motorista) => {
+      const status = getMotoristaStatus(motorista, eventos)
+      return status === "Disponível"
+    }).length
+
+    // Calcular quilometragem total das viagens
+    const quilometragemTotal = calcularQuilometragemTotal(eventos)
 
     // Viagens hoje
     const hoje = new Date().toISOString().split("T")[0]
-    const viagensHoje = eventos.filter((e) => e.dataHora.startsWith(hoje) && e.tipo === "Saída").length
+    const viagensHoje = eventos.filter((evento) => {
+      const dataEvento = converterDataBrasileiraParaISO(evento.data_hora)
+      return dataEvento.startsWith(hoje) && evento.tipo === "Saída"
+    }).length
 
     // Taxa de utilização
     const utilizacao = carros.length > 0 ? ((carros.length - carrosDisponiveis) / carros.length) * 100 : 0
@@ -70,52 +125,114 @@ export default function Dashboard() {
       viagensHoje,
       utilizacao,
     })
-
-    // Gerar alertas
-    generateAlerts(carros, motoristas, eventos)
-
-    // Gerar dados dos gráficos
-    generateChartData(carros, motoristas, eventos)
-  }, [])
+  }
 
   const getCarroStatus = (carro, eventos) => {
-    // Verificar se está em uso
-    const ultimoEvento = eventos
-      .filter((e) => e.carroId === carro.id)
-      .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))[0]
+    // Verificar se está em uso baseado nos eventos
+    const eventosCarroOrdenados = eventos
+      .filter((e) => e.carro_id === carro.id)
+      .sort((a, b) => {
+        const dataA = converterDataBrasileiraParaDate(a.data_hora)
+        const dataB = converterDataBrasileiraParaDate(b.data_hora)
+        return dataB - dataA
+      })
+
+    const ultimoEvento = eventosCarroOrdenados[0]
 
     if (ultimoEvento && ultimoEvento.tipo === "Saída") {
       return "Em Uso"
     }
 
-    // Verificar documentação
+    // Verificar documentação vencida
     const hoje = new Date()
-    if (carro.vencimentoIPVA && new Date(carro.vencimentoIPVA) < hoje) return "Documentação Vencida"
-    if (carro.vencimentoSeguro && new Date(carro.vencimentoSeguro) < hoje) return "Documentação Vencida"
-    if (carro.proximaRevisao && new Date(carro.proximaRevisao) < hoje) return "Manutenção Pendente"
+    if (carro.ipva && new Date(carro.ipva) < hoje) return "Documentação Vencida"
+    if (carro.seguro && new Date(carro.seguro) < hoje) return "Documentação Vencida"
+    if (carro.revisao && new Date(carro.revisao) < hoje) return "Manutenção Pendente"
 
     return "Disponível"
   }
 
   const getMotoristaStatus = (motorista, eventos) => {
-    // Verificar se está dirigindo
-    const ultimoEvento = eventos
-      .filter((e) => e.motoristaId === motorista.id)
-      .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))[0]
+    // Verificar se está em viagem baseado nos eventos
+    const eventosMotoristaOrdenados = eventos
+      .filter((e) => e.motorista_id === motorista.id)
+      .sort((a, b) => {
+        const dataA = converterDataBrasileiraParaDate(a.data_hora)
+        const dataB = converterDataBrasileiraParaDate(b.data_hora)
+        return dataB - dataA
+      })
+
+    const ultimoEvento = eventosMotoristaOrdenados[0]
 
     if (ultimoEvento && ultimoEvento.tipo === "Saída") {
       return "Em Viagem"
     }
 
-    // Verificar CNH
-    if (motorista.vencimentoCNH && new Date(motorista.vencimentoCNH) < new Date()) {
+    // Verificar CNH vencida
+    if (motorista.vencimento_cnh && new Date(motorista.vencimento_cnh) < new Date()) {
       return "CNH Vencida"
     }
 
     return "Disponível"
   }
 
-  const generateAlerts = (carros, motoristas, eventos) => {
+  const calcularQuilometragemTotal = (eventos) => {
+    let quilometragemTotal = 0
+
+    // Agrupar eventos por carro e motorista para calcular viagens completas
+    const viagensCompletas = {}
+
+    eventos.forEach((evento) => {
+      const chave = `${evento.carro_id}_${evento.motorista_id}`
+
+      if (!viagensCompletas[chave]) {
+        viagensCompletas[chave] = { saidas: [], chegadas: [] }
+      }
+
+      if (evento.tipo === "Saída") {
+        viagensCompletas[chave].saidas.push(evento)
+      } else if (evento.tipo === "Chegada") {
+        viagensCompletas[chave].chegadas.push(evento)
+      }
+    })
+
+    // Calcular quilometragem de cada viagem completa
+    Object.values(viagensCompletas).forEach((viagem) => {
+      viagem.saidas.forEach((saida) => {
+        // Encontrar a chegada correspondente (primeira chegada após esta saída)
+        const chegadaCorrespondente = viagem.chegadas.find((chegada) => {
+          const dataSaida = converterDataBrasileiraParaDate(saida.data_hora)
+          const dataChegada = converterDataBrasileiraParaDate(chegada.data_hora)
+          return dataChegada > dataSaida
+        })
+
+        if (chegadaCorrespondente && chegadaCorrespondente.odometro && saida.odometro) {
+          const quilometragem = chegadaCorrespondente.odometro - saida.odometro
+          if (quilometragem > 0) {
+            quilometragemTotal += quilometragem
+          }
+        }
+      })
+    })
+
+    return quilometragemTotal
+  }
+
+  const converterDataBrasileiraParaDate = (dataBrasileira) => {
+    // Converter "dd/mm/yyyy HH:mm:ss" para Date
+    const [dataParte, horaParte] = dataBrasileira.split(" ")
+    const [dia, mes, ano] = dataParte.split("/")
+    const [hora, minuto, segundo] = horaParte.split(":")
+
+    return new Date(ano, mes - 1, dia, hora, minuto, segundo)
+  }
+
+  const converterDataBrasileiraParaISO = (dataBrasileira) => {
+    const date = converterDataBrasileiraParaDate(dataBrasileira)
+    return date.toISOString()
+  }
+
+  const gerarAlertas = (carros, motoristas, eventos) => {
     const alertas = []
     const hoje = new Date()
     const em30Dias = new Date(hoje.getTime() + 30 * 24 * 60 * 60 * 1000)
@@ -123,7 +240,7 @@ export default function Dashboard() {
     // Alertas de carros
     carros.forEach((carro) => {
       // Documentação vencida
-      if (carro.vencimentoIPVA && new Date(carro.vencimentoIPVA) < hoje) {
+      if (carro.ipva && new Date(carro.ipva) < hoje) {
         alertas.push({
           tipo: "error",
           titulo: "IPVA Vencido",
@@ -131,7 +248,7 @@ export default function Dashboard() {
           icone: AlertTriangle,
         })
       }
-      if (carro.vencimentoSeguro && new Date(carro.vencimentoSeguro) < hoje) {
+      if (carro.seguro && new Date(carro.seguro) < hoje) {
         alertas.push({
           tipo: "error",
           titulo: "Seguro Vencido",
@@ -141,7 +258,7 @@ export default function Dashboard() {
       }
 
       // Documentação vencendo em 30 dias
-      if (carro.vencimentoIPVA && new Date(carro.vencimentoIPVA) < em30Dias && new Date(carro.vencimentoIPVA) > hoje) {
+      if (carro.ipva && new Date(carro.ipva) < em30Dias && new Date(carro.ipva) > hoje) {
         alertas.push({
           tipo: "warning",
           titulo: "IPVA Vencendo",
@@ -151,7 +268,7 @@ export default function Dashboard() {
       }
 
       // Revisão pendente
-      if (carro.proximaRevisao && new Date(carro.proximaRevisao) < hoje) {
+      if (carro.revisao && new Date(carro.revisao) < hoje) {
         alertas.push({
           tipo: "warning",
           titulo: "Revisão Pendente",
@@ -161,12 +278,18 @@ export default function Dashboard() {
       }
 
       // Carro em uso há muito tempo
-      const ultimaSaida = eventos
-        .filter((e) => e.carroId === carro.id && e.tipo === "Saída")
-        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))[0]
+      const ultimoEventoCarro = eventos
+        .filter((e) => e.carro_id === carro.id && e.tipo === "Saída")
+        .sort((a, b) => {
+          const dataA = converterDataBrasileiraParaDate(a.data_hora)
+          const dataB = converterDataBrasileiraParaDate(b.data_hora)
+          return dataB - dataA
+        })[0]
 
-      if (ultimaSaida) {
-        const tempoUso = (hoje - new Date(ultimaSaida.dataHora)) / (1000 * 60 * 60)
+      if (ultimoEventoCarro) {
+        const dataUltimaSaida = converterDataBrasileiraParaDate(ultimoEventoCarro.data_hora)
+        const tempoUso = (hoje - dataUltimaSaida) / (1000 * 60 * 60)
+
         if (tempoUso > 24) {
           alertas.push({
             tipo: "warning",
@@ -181,7 +304,7 @@ export default function Dashboard() {
     // Alertas de motoristas
     motoristas.forEach((motorista) => {
       // CNH vencida
-      if (motorista.vencimentoCNH && new Date(motorista.vencimentoCNH) < hoje) {
+      if (motorista.vencimento_cnh && new Date(motorista.vencimento_cnh) < hoje) {
         alertas.push({
           tipo: "error",
           titulo: "CNH Vencida",
@@ -192,9 +315,9 @@ export default function Dashboard() {
 
       // CNH vencendo em 30 dias
       if (
-        motorista.vencimentoCNH &&
-        new Date(motorista.vencimentoCNH) < em30Dias &&
-        new Date(motorista.vencimentoCNH) > hoje
+        motorista.vencimento_cnh &&
+        new Date(motorista.vencimento_cnh) < em30Dias &&
+        new Date(motorista.vencimento_cnh) > hoje
       ) {
         alertas.push({
           tipo: "warning",
@@ -208,7 +331,7 @@ export default function Dashboard() {
     setAlerts(alertas.slice(0, 5)) // Mostrar apenas os 5 primeiros
   }
 
-  const generateChartData = (carros, motoristas, eventos) => {
+  const gerarDadosGraficos = (carros, motoristas, eventos) => {
     // Status da frota
     const statusCount = {
       Disponível: 0,
@@ -243,10 +366,15 @@ export default function Dashboard() {
     for (let i = 6; i >= 0; i--) {
       const data = new Date()
       data.setDate(data.getDate() - i)
-      const dataStr = data.toISOString().split("T")[0]
+      const dataISO = data.toISOString().split("T")[0]
 
-      const saidas = eventos.filter((e) => e.tipo === "Saída" && e.dataHora.startsWith(dataStr)).length
-      const chegadas = eventos.filter((e) => e.tipo === "Chegada" && e.dataHora.startsWith(dataStr)).length
+      const eventosData = eventos.filter((evento) => {
+        const dataEventoISO = converterDataBrasileiraParaISO(evento.data_hora)
+        return dataEventoISO.startsWith(dataISO)
+      })
+
+      const saidas = eventosData.filter((e) => e.tipo === "Saída").length
+      const chegadas = eventosData.filter((e) => e.tipo === "Chegada").length
 
       usoSemanal.push({
         data: data.toLocaleDateString("pt-BR", { weekday: "short" }),
@@ -263,26 +391,12 @@ export default function Dashboard() {
       const ano = data.getFullYear()
       const mes = data.getMonth() + 1
 
-      const eventosDoMes = eventos.filter((e) => {
-        const eventoData = new Date(e.dataHora)
-        return eventoData.getFullYear() === ano && eventoData.getMonth() + 1 === mes
+      const eventosDoMes = eventos.filter((evento) => {
+        const dataEvento = converterDataBrasileiraParaDate(evento.data_hora)
+        return dataEvento.getFullYear() === ano && dataEvento.getMonth() + 1 === mes
       })
 
-      const quilometragem = eventosDoMes
-        .filter((e) => e.tipo === "Chegada" && e.odometro)
-        .reduce((total, chegada) => {
-          const saida = eventosDoMes.find(
-            (s) =>
-              s.tipo === "Saída" &&
-              s.carroId === chegada.carroId &&
-              s.motoristaId === chegada.motoristaId &&
-              new Date(s.dataHora) < new Date(chegada.dataHora),
-          )
-          if (saida && saida.odometro) {
-            return total + (chegada.odometro - saida.odometro)
-          }
-          return total
-        }, 0)
+      const quilometragem = calcularQuilometragemTotal(eventosDoMes)
 
       quilometragemMensal.push({
         mes: data.toLocaleDateString("pt-BR", { month: "short" }),
@@ -359,9 +473,21 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-gray-600 mt-1">Visão geral em tempo real da sua frota</p>
         </div>
-        <div className="flex items-center space-x-2 text-sm text-gray-500">
-          <Activity className="w-4 h-4 animate-pulse text-green-500" />
-          <span>Atualizado em tempo real</span>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 text-sm text-gray-500">
+            <Activity className={`w-4 h-4 ${loading ? "animate-pulse text-yellow-500" : "text-green-500"}`} />
+            <span>
+              {loading
+                ? "Carregando..."
+                : lastUpdate
+                  ? `Atualizado às ${lastUpdate.toLocaleTimeString()}`
+                  : "Dados carregados"}
+            </span>
+          </div>
+          <Button variant="outline" size="sm" onClick={carregarDados} disabled={loading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
         </div>
       </div>
 
