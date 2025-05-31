@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,17 +26,44 @@ export default function Motoristas() {
   const [editandoId, setEditandoId] = useState(null)
   const { toast } = useToast()
   const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const carregarMotoristas = useCallback(
+    async (termoBusca = "") => {
+      try {
+        setLoading(true)
+        const url = termoBusca ? `/api/motoristas?busca=${encodeURIComponent(termoBusca)}` : "/api/motoristas"
+
+        const response = await fetch(url)
+        const data = await response.json()
+
+        if (data.success) {
+          setMotoristas(data.data)
+        } else {
+          toast({
+            title: "Erro",
+            description: data.message || "Erro ao carregar motoristas",
+            variant: "destructive",
+          })
+        }
+      } catch (error) {
+        console.error("Erro ao carregar motoristas:", error)
+        toast({
+          title: "Erro",
+          description: "Erro ao conectar com o servidor",
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [toast],
+  )
 
   useEffect(() => {
-    const dados = localStorage.getItem("motoristas")
-    if (dados) {
-      setMotoristas(JSON.parse(dados))
-    }
-  }, [])
-
-  useEffect(() => {
-    localStorage.setItem("motoristas", JSON.stringify(motoristas))
-  }, [motoristas])
+    carregarMotoristas()
+  }, [carregarMotoristas])
 
   const resetForm = () => {
     setNome("")
@@ -124,7 +151,7 @@ export default function Motoristas() {
     return null
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
 
     if (!nome || !telefone || !cnh || !vencimentoCnh) {
@@ -158,30 +185,9 @@ export default function Motoristas() {
       return
     }
 
-    if (editandoId !== null) {
-      setMotoristas(
-        motoristas.map((m) =>
-          m.id === editandoId
-            ? {
-                ...m,
-                nome,
-                telefone,
-                cnh,
-                vencimentoCnh,
-                categoria,
-                status,
-                observacoes,
-              }
-            : m,
-        ),
-      )
-      toast({
-        title: "Sucesso",
-        description: "Motorista editado com sucesso",
-      })
-    } else {
-      const novoMotorista = {
-        id: Date.now(),
+    try {
+      setLoading(true)
+      const motoristaData = {
         nome,
         telefone,
         cnh,
@@ -189,16 +195,71 @@ export default function Motoristas() {
         categoria,
         status,
         observacoes,
-        dataCadastro: new Date().toISOString(),
       }
-      setMotoristas([novoMotorista, ...motoristas])
-      toast({
-        title: "Sucesso",
-        description: "Motorista adicionado com sucesso",
-      })
-    }
 
-    resetForm()
+      let response
+      if (editandoId !== null) {
+        // Incluir o ID no corpo da requisição para o PUT
+        response = await fetch(`/api/motoristas`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: editandoId,
+            nome,
+            telefone,
+            cnh,
+            vencimentoCnh,
+            categoria,
+            status,
+            observacoes,
+          }),
+        })
+      } else {
+        response = await fetch("/api/motoristas", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            nome,
+            telefone,
+            cnh,
+            vencimentoCnh,
+            categoria,
+            status,
+            observacoes,
+          }),
+        })
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        toast({
+          title: "Sucesso",
+          description: editandoId ? "Motorista editado com sucesso" : "Motorista adicionado com sucesso",
+        })
+        carregarMotoristas() // Recarrega os motoristas
+        resetForm()
+      } else {
+        toast({
+          title: "Erro",
+          description: data.message || "Erro ao salvar motorista",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Erro ao salvar motorista:", error)
+      toast({
+        title: "Erro",
+        description: "Erro ao conectar com o servidor",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleEdit = (motorista) => {
@@ -212,7 +273,7 @@ export default function Motoristas() {
     setEditandoId(motorista.id)
   }
 
-  const handleDelete = (id, nome) => {
+  const handleDelete = async (id, nome) => {
     // Verificar se o motorista está em viagem
     const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
     const motoristaEmViagem = eventos.some(
@@ -240,14 +301,39 @@ export default function Motoristas() {
       open: true,
       title: "Confirmar Exclusão",
       message: `Tem certeza que deseja excluir o motorista "${nome}"? Esta ação não pode ser desfeita.`,
-      onConfirm: () => {
-        setMotoristas(motoristas.filter((m) => m.id !== id))
-        if (editandoId === id) resetForm()
-        toast({
-          title: "Sucesso",
-          description: "Motorista removido com sucesso",
-        })
-        setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
+      onConfirm: async () => {
+        try {
+          setLoading(true)
+          const response = await fetch(`/api/motoristas?id=${id}`, {
+            method: "DELETE",
+          })
+
+          const data = await response.json()
+
+          if (data.success) {
+            toast({
+              title: "Sucesso",
+              description: "Motorista removido com sucesso",
+            })
+            carregarMotoristas() // Recarrega os motoristas
+            if (editandoId === id) resetForm()
+          } else {
+            toast({
+              title: "Erro",
+              description: data.message || "Erro ao excluir motorista",
+              variant: "destructive",
+            })
+          }
+        } catch (error) {
+          console.error("Erro ao excluir motorista:", error)
+          toast({
+            title: "Erro",
+            description: "Erro ao conectar com o servidor",
+          })
+        } finally {
+          setLoading(false)
+          setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
+        }
       },
     })
   }
@@ -300,10 +386,25 @@ export default function Motoristas() {
   }
 
   const verificarCnhVencida = (motorista) => {
-    if (!motorista.vencimentoCnh) return false
+    const vencimento = motorista.vencimento_cnh || motorista.vencimentoCnh
+    if (!vencimento) return false
     const hoje = new Date()
-    return new Date(motorista.vencimentoCnh) < hoje
+    return new Date(vencimento) < hoje
   }
+
+  const handleSearch = useCallback(
+    (termo) => {
+      carregarMotoristas(termo)
+    },
+    [carregarMotoristas],
+  )
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      handleSearch(busca)
+    }, 300)
+    return () => clearTimeout(delayDebounceFn)
+  }, [busca, handleSearch])
 
   return (
     <div className="p-6 space-y-6">
@@ -433,9 +534,11 @@ export default function Motoristas() {
             </div>
 
             <div className="flex space-x-2">
-              <Button type="submit">{editandoId ? "Salvar Alterações" : "Adicionar Motorista"}</Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? "Carregando..." : editandoId ? "Salvar Alterações" : "Adicionar Motorista"}
+              </Button>
               {editandoId && (
-                <Button type="button" variant="outline" onClick={resetForm}>
+                <Button type="button" variant="outline" onClick={resetForm} disabled={loading}>
                   Cancelar
                 </Button>
               )}
@@ -455,12 +558,15 @@ export default function Motoristas() {
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
                 className="pl-10"
+                disabled={loading}
               />
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          {motoristasFiltrados.length > 0 ? (
+          {loading ? (
+            <div className="text-center py-8">Carregando motoristas...</div>
+          ) : motoristasFiltrados.length > 0 ? (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -469,7 +575,7 @@ export default function Motoristas() {
                     <TableHead>Telefone</TableHead>
                     <TableHead>CNH</TableHead>
                     <TableHead>Categoria</TableHead>
-                    <TableHead>Vencimento</TableHead>
+                    <TableHead>Vencimento CNH</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Situação Atual</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -494,11 +600,25 @@ export default function Motoristas() {
                         <TableCell>
                           <div className={`flex items-center space-x-2 ${cnhVencida ? "text-red-600" : ""}`}>
                             {cnhVencida && <AlertTriangle className="w-4 h-4" />}
-                            <span>
-                              {motorista.vencimentoCnh
-                                ? new Date(motorista.vencimentoCnh).toLocaleDateString("pt-BR")
-                                : "-"}
-                            </span>
+                            <div>
+                              <div className="font-medium">
+                                {motorista.vencimento_cnh || motorista.vencimentoCnh
+                                  ? new Date(motorista.vencimento_cnh || motorista.vencimentoCnh).toLocaleDateString(
+                                      "pt-BR",
+                                    )
+                                  : "-"}
+                              </div>
+                              {(motorista.vencimento_cnh || motorista.vencimentoCnh) && (
+                                <div className="text-xs text-gray-500">
+                                  {cnhVencida
+                                    ? "Vencida"
+                                    : `${Math.ceil(
+                                        (new Date(motorista.vencimento_cnh || motorista.vencimentoCnh) - new Date()) /
+                                          (1000 * 60 * 60 * 24),
+                                      )} dias`}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>{getStatusBadge(motorista)}</TableCell>
@@ -517,7 +637,12 @@ export default function Motoristas() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end space-x-2">
-                            <Button variant="outline" size="sm" onClick={() => handleEdit(motorista)}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEdit(motorista)}
+                              disabled={loading}
+                            >
                               <Edit className="w-4 h-4" />
                             </Button>
                             <Button
@@ -525,6 +650,7 @@ export default function Motoristas() {
                               size="sm"
                               onClick={() => handleDelete(motorista.id, motorista.nome)}
                               className="text-red-600 hover:text-red-700"
+                              disabled={loading}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>

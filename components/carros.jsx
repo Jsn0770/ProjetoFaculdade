@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,8 +10,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
-import { Search, Plus, Edit, Trash2, Car, Upload, ImageIcon, AlertTriangle, CheckCircle, Clock } from "lucide-react"
+import {
+  Search,
+  Plus,
+  Edit,
+  Trash2,
+  Car,
+  Upload,
+  ImageIcon,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Loader2,
+  FileText,
+} from "lucide-react"
 import ConfirmDialog from "./confirm-dialog"
+import { debounce } from "lodash"
 
 export default function Carros() {
   const [carros, setCarros] = useState([])
@@ -30,17 +44,63 @@ export default function Carros() {
   const [editandoId, setEditandoId] = useState(null)
   const { toast } = useToast()
   const [confirmDialog, setConfirmDialog] = useState({ open: false, title: "", message: "", onConfirm: null })
+  const [loading, setLoading] = useState(true)
+  const [loadingBusca, setLoadingBusca] = useState(false)
+  const [error, setError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [imageErrors, setImageErrors] = useState(new Set())
 
-  useEffect(() => {
-    const dados = localStorage.getItem("carros")
-    if (dados) {
-      setCarros(JSON.parse(dados))
-    }
-  }, [])
+  // Função para buscar carros com debounce
+  const fetchCarros = useCallback(
+    async (termo = "") => {
+      try {
+        setLoadingBusca(true)
+        const response = await fetch(`/api/carros${termo ? `?busca=${termo}` : ""}`)
 
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || "Erro ao buscar carros")
+        }
+
+        const data = await response.json()
+        console.log("Dados dos carros:", data.carros) // Debug para ver as imagens
+        setCarros(data.carros)
+        setError(null)
+        setImageErrors(new Set()) // Reset dos erros de imagem
+      } catch (err) {
+        console.error("Erro ao buscar carros:", err)
+        setError(err.message)
+        toast({
+          title: "Erro",
+          description: `Falha ao carregar carros: ${err.message}`,
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
+        setLoadingBusca(false)
+      }
+    },
+    [toast],
+  )
+
+  // Debounce para busca
+  const debouncedFetchCarros = useCallback(
+    debounce((termo) => {
+      fetchCarros(termo)
+    }, 300),
+    [fetchCarros],
+  )
+
+  // Carregar carros ao montar o componente
   useEffect(() => {
-    localStorage.setItem("carros", JSON.stringify(carros))
-  }, [carros])
+    fetchCarros()
+  }, [fetchCarros])
+
+  // Atualizar busca com debounce
+  useEffect(() => {
+    debouncedFetchCarros(busca)
+    return () => debouncedFetchCarros.cancel()
+  }, [busca, debouncedFetchCarros])
 
   const resetForm = () => {
     setModelo("")
@@ -57,65 +117,37 @@ export default function Carros() {
     setEditandoId(null)
   }
 
-  const verificarDisponibilidade = (carroId = null) => {
-    const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
-
-    return carros.map((carro) => {
-      if (carroId && carro.id !== carroId) return carro
-
-      // Verificar se há saída sem chegada
-      const saidasSemChegada = eventos.filter(
-        (e) =>
-          e.carroId === carro.id &&
-          e.tipo === "Saída" &&
-          !eventos.some(
-            (chegada) =>
-              chegada.carroId === carro.id &&
-              chegada.tipo === "Chegada" &&
-              new Date(chegada.dataHora) > new Date(e.dataHora),
-          ),
-      )
-
-      // Verificar documentação vencida
-      const hoje = new Date()
-      const ipvaVencido = carro.ipva && new Date(carro.ipva) < hoje
-      const seguroVencido = carro.seguro && new Date(carro.seguro) < hoje
-      const revisaoVencida = carro.revisao && new Date(carro.revisao) < hoje
-
-      let novoStatus = carro.status
-      const motivo = []
-
-      if (saidasSemChegada.length > 0) {
-        novoStatus = "Em Uso"
-        motivo.push("Veículo em uso")
-      } else if (ipvaVencido || seguroVencido || revisaoVencida) {
-        novoStatus = "Indisponível"
-        if (ipvaVencido) motivo.push("IPVA vencido")
-        if (seguroVencido) motivo.push("Seguro vencido")
-        if (revisaoVencida) motivo.push("Revisão vencida")
-      } else if (carro.status === "Manutenção") {
-        novoStatus = "Manutenção"
-        motivo.push("Em manutenção")
-      } else {
-        novoStatus = "Disponível"
-      }
-
-      return {
-        ...carro,
-        statusCalculado: novoStatus,
-        motivoIndisponibilidade: motivo.join(", "),
-      }
-    })
-  }
-
-  const handleImageChange = (e) => {
+  const handleImageChange = async (e) => {
     const file = e.target.files?.[0]
     if (file) {
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        setImagem(event.target?.result)
+      try {
+        const formData = new FormData()
+        formData.append("file", file)
+
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        })
+
+        const result = await response.json()
+
+        if (result.success) {
+          setImagem(result.data.url)
+          toast({
+            title: "Sucesso",
+            description: "Imagem enviada com sucesso",
+          })
+        } else {
+          throw new Error(result.message)
+        }
+      } catch (error) {
+        console.error("Erro no upload:", error)
+        toast({
+          title: "Erro",
+          description: "Falha ao enviar imagem",
+          variant: "destructive",
+        })
       }
-      reader.readAsDataURL(file)
     }
   }
 
@@ -136,27 +168,13 @@ export default function Carros() {
     return alertas
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
 
     if (!modelo || !marca || !placa || !ano || !odometro) {
       toast({
         title: "Erro",
         description: "Preencha todos os campos obrigatórios",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Validar placa única
-    const placaExistente = carros.find(
-      (c) => c.placa.toUpperCase() === placa.toUpperCase() && (editandoId === null || c.id !== editandoId),
-    )
-
-    if (placaExistente) {
-      toast({
-        title: "Erro",
-        description: "Já existe um carro com esta placa",
         variant: "destructive",
       })
       return
@@ -171,34 +189,10 @@ export default function Carros() {
       })
     }
 
-    if (editandoId !== null) {
-      setCarros(
-        carros.map((c) =>
-          c.id === editandoId
-            ? {
-                ...c,
-                modelo,
-                marca,
-                placa: placa.toUpperCase(),
-                ano: Number.parseInt(ano),
-                odometro: Number.parseInt(odometro),
-                status,
-                ipva,
-                seguro,
-                revisao,
-                observacoes,
-                imagem,
-              }
-            : c,
-        ),
-      )
-      toast({
-        title: "Sucesso",
-        description: "Carro editado com sucesso",
-      })
-    } else {
-      const novoCarro = {
-        id: Date.now(),
+    try {
+      setSubmitting(true)
+
+      const carroData = {
         modelo,
         marca,
         placa: placa.toUpperCase(),
@@ -210,17 +204,58 @@ export default function Carros() {
         revisao,
         observacoes,
         imagem,
-        renavam: Math.floor(10000000000 + Math.random() * 89999999999).toString(),
-        dataCadastro: new Date().toISOString(),
       }
-      setCarros([novoCarro, ...carros])
+
+      let response
+
+      if (editandoId !== null) {
+        // Atualizar carro existente
+        response = await fetch(`/api/carros`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: editandoId,
+            ...carroData,
+          }),
+        })
+      } else {
+        // Criar novo carro
+        response = await fetch(`/api/carros`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(carroData),
+        })
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Erro ao salvar carro")
+      }
+
+      const data = await response.json()
+
       toast({
         title: "Sucesso",
-        description: "Carro adicionado com sucesso",
+        description: editandoId ? "Carro editado com sucesso" : "Carro adicionado com sucesso",
       })
-    }
 
-    resetForm()
+      // Atualizar lista de carros
+      fetchCarros(busca)
+      resetForm()
+    } catch (err) {
+      console.error("Erro ao salvar carro:", err)
+      toast({
+        title: "Erro",
+        description: err.message,
+        variant: "destructive",
+      })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleEdit = (carro) => {
@@ -239,55 +274,44 @@ export default function Carros() {
   }
 
   const handleDelete = (id, modelo, marca) => {
-    // Verificar se o carro está em uso
-    const eventos = JSON.parse(localStorage.getItem("eventos") || "[]")
-    const carroEmUso = eventos.some(
-      (e) =>
-        e.carroId === id &&
-        e.tipo === "Saída" &&
-        !eventos.some(
-          (chegada) =>
-            chegada.carroId === id && chegada.tipo === "Chegada" && new Date(chegada.dataHora) > new Date(e.dataHora),
-        ),
-    )
-
-    if (carroEmUso) {
-      toast({
-        title: "Erro",
-        description: "Não é possível excluir um carro que está em uso",
-        variant: "destructive",
-      })
-      return
-    }
-
     setConfirmDialog({
       open: true,
       title: "Confirmar Exclusão",
       message: `Tem certeza que deseja excluir o veículo "${marca} ${modelo}"? Esta ação não pode ser desfeita.`,
-      onConfirm: () => {
-        setCarros(carros.filter((c) => c.id !== id))
-        if (editandoId === id) resetForm()
-        toast({
-          title: "Sucesso",
-          description: "Carro removido com sucesso",
-        })
-        setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`/api/carros?id=${id}`, {
+            method: "DELETE",
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            throw new Error(errorData.error || "Erro ao excluir carro")
+          }
+
+          toast({
+            title: "Sucesso",
+            description: "Carro removido com sucesso",
+          })
+
+          // Atualizar lista de carros
+          fetchCarros(busca)
+          if (editandoId === id) resetForm()
+        } catch (err) {
+          console.error("Erro ao excluir carro:", err)
+          toast({
+            title: "Erro",
+            description: `Erro ao remover carro: ${err.message}`,
+            variant: "destructive",
+          })
+        } finally {
+          setConfirmDialog({ open: false, title: "", message: "", onConfirm: null })
+        }
       },
     })
   }
 
-  const carrosComStatus = verificarDisponibilidade()
-  const carrosFiltrados = carrosComStatus.filter(
-    (c) =>
-      c.modelo.toLowerCase().includes(busca.toLowerCase()) ||
-      c.marca.toLowerCase().includes(busca.toLowerCase()) ||
-      c.placa.toLowerCase().includes(busca.toLowerCase()),
-  )
-
-  const getStatusBadge = (carro) => {
-    const status = carro.statusCalculado || carro.status
-    const motivo = carro.motivoIndisponibilidade
-
+  const getStatusBadge = (status) => {
     switch (status) {
       case "Disponível":
         return (
@@ -312,7 +336,7 @@ export default function Carros() {
         )
       case "Indisponível":
         return (
-          <Badge variant="destructive" title={motivo}>
+          <Badge variant="destructive">
             <AlertTriangle className="w-3 h-3 mr-1" />
             Indisponível
           </Badge>
@@ -333,8 +357,58 @@ export default function Carros() {
     return alertas
   }
 
+  // Função melhorada para verificar se a imagem é válida
+  const isValidImageUrl = (url) => {
+    if (!url || typeof url !== "string") return false
+
+    // Remove espaços em branco
+    url = url.trim()
+
+    // Verifica se é uma URL válida ou base64
+    return (
+      url.startsWith("data:image/") ||
+      url.startsWith("http://") ||
+      url.startsWith("https://") ||
+      url.startsWith("/uploads/") ||
+      url.startsWith("/")
+    )
+  }
+
+  // Função para lidar com erro de imagem
+  const handleImageError = (carroId) => {
+    console.log(`Erro ao carregar imagem do carro ${carroId}`)
+    setImageErrors((prev) => new Set([...prev, carroId]))
+  }
+
+  // Componente para renderizar imagem com fallback
+  const CarImage = ({ carro }) => {
+    const hasError = imageErrors.has(carro.id)
+    const hasValidUrl = isValidImageUrl(carro.imagem)
+
+    if (!hasValidUrl || hasError) {
+      return (
+        <div className="w-16 h-12 bg-white border border-gray-200 rounded flex items-center justify-center">
+          <ImageIcon className="w-4 h-4 text-gray-400" />
+        </div>
+      )
+    }
+
+    return (
+      <div className="w-16 h-12 bg-white border border-gray-200 rounded overflow-hidden">
+        <img
+          src={carro.imagem || "/placeholder.svg"}
+          alt={`${carro.marca} ${carro.modelo}`}
+          className="w-full h-full object-cover"
+          style={{ backgroundColor: "white" }}
+          onError={() => handleImageError(carro.id)}
+          onLoad={() => console.log(`Imagem carregada com sucesso: ${carro.imagem}`)}
+        />
+      </div>
+    )
+  }
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 bg-white min-h-screen">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Carros</h1>
@@ -347,12 +421,12 @@ export default function Carros() {
           </div>
           <div className="flex items-center space-x-2">
             <CheckCircle className="w-4 h-4 text-green-500" />
-            <span>{carrosComStatus.filter((c) => c.statusCalculado === "Disponível").length} disponíveis</span>
+            <span>{carros.filter((c) => c.status === "Disponível").length} disponíveis</span>
           </div>
         </div>
       </div>
 
-      <Card>
+      <Card className="bg-white">
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Plus className="w-5 h-5" />
@@ -472,16 +546,28 @@ export default function Carros() {
 
             {imagem && (
               <div className="flex justify-center">
-                <img
-                  src={imagem || "/placeholder.svg"}
-                  alt="Preview"
-                  className="max-w-xs max-h-32 object-contain rounded-lg border"
-                />
+                <div className="bg-white p-2 border border-gray-200 rounded-lg">
+                  <img
+                    src={imagem || "/placeholder.svg"}
+                    alt="Preview"
+                    className="max-w-xs max-h-32 object-contain"
+                    style={{ backgroundColor: "white" }}
+                  />
+                </div>
               </div>
             )}
 
             <div className="flex space-x-2">
-              <Button type="submit">{editandoId ? "Salvar Alterações" : "Adicionar Carro"}</Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {editandoId ? "Salvando..." : "Adicionando..."}
+                  </>
+                ) : (
+                  <>{editandoId ? "Salvar Alterações" : "Adicionar Carro"}</>
+                )}
+              </Button>
               {editandoId && (
                 <Button type="button" variant="outline" onClick={resetForm}>
                   Cancelar
@@ -492,7 +578,7 @@ export default function Carros() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="bg-white">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Lista de Carros</CardTitle>
@@ -504,11 +590,21 @@ export default function Carros() {
                 onChange={(e) => setBusca(e.target.value)}
                 className="pl-10"
               />
+              {loadingBusca && <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-gray-400" />}
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          {carrosFiltrados.length > 0 ? (
+          {loading ? (
+            <div className="flex justify-center items-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-8 text-red-500">
+              <AlertTriangle className="w-12 h-12 mx-auto mb-4" />
+              <p>{error}</p>
+            </div>
+          ) : carros.length > 0 ? (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -520,44 +616,29 @@ export default function Carros() {
                     <TableHead>Odômetro</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Documentação</TableHead>
+                    <TableHead>Observações</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {carrosFiltrados.map((carro) => {
+                  {carros.map((carro) => {
                     const docsVencidas = verificarDocumentacaoVencida(carro)
                     return (
                       <TableRow key={carro.id}>
                         <TableCell>
-                          {carro.imagem ? (
-                            <img
-                              src={carro.imagem || "/placeholder.svg"}
-                              alt={carro.modelo}
-                              className="w-12 h-8 object-contain rounded"
-                            />
-                          ) : (
-                            <div className="w-12 h-8 bg-gray-100 rounded flex items-center justify-center">
-                              <ImageIcon className="w-4 h-4 text-gray-400" />
-                            </div>
-                          )}
+                          <CarImage carro={carro} />
                         </TableCell>
                         <TableCell>
                           <div>
                             <div className="font-medium">
                               {carro.marca} {carro.modelo}
                             </div>
-                            <div className="text-sm text-gray-500">RENAVAM: {carro.renavam}</div>
                           </div>
                         </TableCell>
                         <TableCell className="font-mono">{carro.placa}</TableCell>
                         <TableCell>{carro.ano}</TableCell>
                         <TableCell>{carro.odometro?.toLocaleString()} km</TableCell>
-                        <TableCell>
-                          {getStatusBadge(carro)}
-                          {carro.motivoIndisponibilidade && (
-                            <div className="text-xs text-red-600 mt-1">{carro.motivoIndisponibilidade}</div>
-                          )}
-                        </TableCell>
+                        <TableCell>{getStatusBadge(carro.status)}</TableCell>
                         <TableCell>
                           {docsVencidas.length > 0 ? (
                             <div className="flex items-center space-x-1 text-red-600">
@@ -569,6 +650,20 @@ export default function Carros() {
                               <CheckCircle className="w-4 h-4" />
                               <span className="text-xs">Em dia</span>
                             </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-xs">
+                          {carro.observacoes ? (
+                            <div className="flex items-start space-x-1">
+                              <FileText className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                              <span className="text-xs text-gray-600 line-clamp-2" title={carro.observacoes}>
+                                {carro.observacoes.length > 50
+                                  ? `${carro.observacoes.substring(0, 50)}...`
+                                  : carro.observacoes}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">Sem observações</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
